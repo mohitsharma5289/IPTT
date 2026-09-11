@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/part-of: iptt
+
+resources:
+  - configmap.yaml
+  - postgres/service.yaml
+  - postgres/statefulset.yaml
+  - api/service.yaml
+  - api/deployment.yaml
+  - web/service.yaml
+  - web/deployment.yaml
+  - route.yaml
+  - migrate-job.yaml
+  - networkpolicy.yaml
+  - pdb.yaml
+  - backup-cronjob.yaml
+  # secrets.example.yaml is deliberately NOT listed. Create the real Secrets
+  # out of band; see that file for the commands.
+
+images:
+  - name: iptt-api
+    newName: image-registry.openshift-image-registry.svc:5000/iptt/iptt-api
+    newTag: latest
+  - name: iptt-web
+    newName: image-registry.openshift-image-registry.svc:5000/iptt/iptt-web
+    newTag: latest

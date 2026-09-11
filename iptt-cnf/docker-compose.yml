@@ -1,0 +1,53 @@
+# Local development stack. Mirrors the OpenShift topology: PostgreSQL with a
+# persistent volume, migrations as a separate one-shot step, then the API.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: iptt
+      POSTGRES_PASSWORD: iptt
+      POSTGRES_DB: iptt
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iptt -d iptt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: ./backend
+    entrypoint: ["/app/entrypoint.sh", "migrate"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://iptt:iptt@db:5432/iptt
+      SESSION_SECRET: local-development-secret-not-for-deployment
+    depends_on:
+      db: {condition: service_healthy}
+
+  api:
+    build: ./backend
+    entrypoint: ["/app/entrypoint.sh", "serve"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://iptt:iptt@db:5432/iptt
+      SESSION_SECRET: local-development-secret-not-for-deployment
+      ENVIRONMENT: local
+      SESSION_HTTPS_ONLY: "false"
+      LOG_JSON: "false"
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+
+  web:
+    build: ./frontend
+    environment:
+      # The browser talks only to the frontend origin; Next proxies /api to the
+      # backend, so the session cookie stays first-party and CORS never applies.
+      API_ORIGIN: http://api:8000
+    ports: ["3000:3000"]
+    depends_on:
+      api: {condition: service_started}
+
+volumes:
+  pgdata:

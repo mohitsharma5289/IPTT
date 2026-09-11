@@ -1,0 +1,56 @@
+# Schema migrations run here and nowhere else.
+#
+# The legacy application called Base.metadata.create_all() at module import, so
+# every Uvicorn worker raced to issue DDL against production on each rollout —
+# and create_all can never ALTER an existing table, so schema changes silently
+# did nothing (audit B3).
+#
+# Run this to completion before rolling the API:
+#   oc apply -k deploy/overlays/prod
+#   oc wait --for=condition=complete job/iptt-migrate --timeout=300s
+#
+# Under ArgoCD, annotate as a PreSync hook.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iptt-migrate
+  labels:
+    app.kubernetes.io/name: iptt
+    app.kubernetes.io/component: migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iptt
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: iptt-api:latest
+          command: ["/app/entrypoint.sh", "migrate"]
+          envFrom:
+            - configMapRef: { name: iptt-config }
+            - secretRef:    { name: iptt-app }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

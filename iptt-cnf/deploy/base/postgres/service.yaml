@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iptt-postgres
+  labels:
+    app.kubernetes.io/name: iptt
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None          # headless: the StatefulSet gets a stable DNS name
+  selector:
+    app.kubernetes.io/name: iptt
+    app.kubernetes.io/component: database
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432

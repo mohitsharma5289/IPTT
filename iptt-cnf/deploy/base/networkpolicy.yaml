@@ -1,0 +1,80 @@
+# Default deny, then open exactly three paths:
+#   router -> web, web -> api, api -> database.
+# Nothing else in the namespace can reach the database, and nothing outside the
+# namespace can reach the API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iptt-default-deny-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iptt-web-from-router
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: web
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iptt-api-from-web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: iptt
+              app.kubernetes.io/component: web
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iptt-db-from-api-and-jobs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: database
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: iptt
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: iptt
+              app.kubernetes.io/component: migrate
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: iptt
+              app.kubernetes.io/component: backup
+      ports:
+        - protocol: TCP
+          port: 5432

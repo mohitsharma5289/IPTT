@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iptt-config
+  labels:
+    app.kubernetes.io/name: iptt
+data:
+  # Non-secret configuration only. Anything sensitive belongs in the Secrets.
+  ENVIRONMENT: "prod"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  LOG_JSON: "true"
+  SESSION_HTTPS_ONLY: "true"
+  ALLOW_SELF_REGISTRATION: "false"
+  PASSWORD_MIN_LENGTH: "12"
+  MAX_UPLOAD_BYTES: "10485760"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  POSTGRES_DB: "iptt"
+  # The browser only ever calls the web origin, which proxies /api to the API
+  # service, so this stays empty in normal operation.
+  CORS_ORIGINS: '[]'

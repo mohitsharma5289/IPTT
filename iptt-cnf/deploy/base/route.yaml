@@ -1,0 +1,23 @@
+# Edge-terminated TLS with an HTTP redirect. Only the web service is exposed —
+# the API is reachable only from inside the namespace, enforced by NetworkPolicy.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: iptt
+  labels:
+    app.kubernetes.io/name: iptt
+  annotations:
+    haproxy.router.openshift.io/timeout: 60s
+    # Uploads and workbook downloads can be large-ish; keep the router patient.
+    haproxy.router.openshift.io/timeout-tunnel: 120s
+spec:
+  # host: iptt.apps.<cluster-domain>     # set per environment, or let OpenShift assign
+  to:
+    kind: Service
+    name: iptt-web
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

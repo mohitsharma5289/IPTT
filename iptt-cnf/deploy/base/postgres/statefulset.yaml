@@ -1,0 +1,75 @@
+# PostgreSQL as a StatefulSet with a PersistentVolumeClaim, per the agreed
+# architecture. No operator: this namespace owns its own database.
+#
+# The image is the SCL PostgreSQL 16 build, which is designed to run as an
+# arbitrary UID in group 0 — which is how OpenShift runs containers under the
+# default restricted-v2 SCC. The upstream docker.io/postgres image is not, and
+# will fail to start here without an elevated SCC.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: iptt-postgres
+  labels:
+    app.kubernetes.io/name: iptt
+    app.kubernetes.io/component: database
+spec:
+  serviceName: iptt-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iptt
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          image: quay.io/sclorg/postgresql-16-c9s:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          env:
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                configMapKeyRef: { name: iptt-config, key: POSTGRES_DB }
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef: { name: iptt-db, key: POSTGRES_USER }
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: iptt-db, key: POSTGRES_PASSWORD }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 2Gi }
+          readinessProbe:
+            exec:
+              command: ["/usr/bin/pg_isready", "-h", "127.0.0.1", "-p", "5432"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: { port: 5432 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

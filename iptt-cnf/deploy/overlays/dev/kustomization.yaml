@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: iptt-dev
+resources:
+  - ../../base
+
+# Single replicas and a smaller footprint; the backup CronJob is dropped.
+replicas:
+  - name: iptt-api
+    count: 1
+  - name: iptt-web
+    count: 1
+
+patches:
+  - target: { kind: CronJob, name: iptt-backup }
+    patch: |
+      $patch: delete
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: iptt-backup
+  - target: { kind: PersistentVolumeClaim, name: iptt-backups }
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: iptt-backups
+  - target: { kind: ConfigMap, name: iptt-config }
+    patch: |
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "dev"
+  - target: { kind: StatefulSet, name: iptt-postgres }
+    patch: |
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi
+  # PodDisruptionBudgets with minAvailable 1 would block node drains at one
+  # replica, so they come out of dev entirely.
+  - target: { kind: PodDisruptionBudget }
+    patch: |
+      $patch: delete
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: PLACEHOLDER

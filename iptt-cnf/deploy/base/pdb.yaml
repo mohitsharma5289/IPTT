@@ -1,0 +1,23 @@
+# Keeps at least one replica of each stateless service during node drains.
+# Both Deployments run 2 replicas, so this permits exactly one at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: iptt-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: iptt-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iptt
+      app.kubernetes.io/component: web
