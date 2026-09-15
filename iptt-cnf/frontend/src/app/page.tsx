@@ -156,6 +156,11 @@ export default function PortfolioPage() {
               </option>
             ))}
           </select>
+          {programmeFilter !== 'all' ? (
+            <Link href={`/programmes/${programmeFilter}`} className="btn-ghost !py-1 !text-xs">
+              Programme view
+            </Link>
+          ) : null}
         </div>
       </div>
 

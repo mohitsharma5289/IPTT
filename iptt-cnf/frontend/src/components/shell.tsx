@@ -50,12 +50,18 @@ function ThemeToggle() {
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {
-  const { session, signOut } = useSession();
+  const { session, signOut, can } = useSession();
   const pathname = usePathname();
 
   const nav = [
     { href: '/', label: 'Portfolio' },
     { href: '/execution', label: 'Execution' },
+    ...(can('admin')
+      ? [
+          { href: '/admin/users', label: 'Users' },
+          { href: '/admin/audit', label: 'Audit' },
+        ]
+      : []),
   ];
 
   return (

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { useRequireSession } from '@/components/session';
+import { useRequireSession, useSession } from '@/components/session';
 import { Shell } from '@/components/shell';
 import {
   DelayPill,
@@ -16,6 +16,7 @@ import {
   Stat,
   classNames,
 } from '@/components/ui';
+import { ActionsPanel } from '@/components/actions-panel';
 import { api } from '@/lib/api';
 import type {
   GovernanceMatrix,
@@ -88,6 +89,7 @@ export default function ProjectDashboard() {
   const params = useParams<{ id: string }>();
   const projectId = Number(params.id);
   const { session, loading } = useRequireSession();
+  const { can } = useSession();
 
   const [data, setData] = useState<Loaded | null>(null);
   const [busy, setBusy] = useState(true);
@@ -186,9 +188,17 @@ export default function ProjectDashboard() {
             {project.baseline_version} · {project.node_count} nodes
           </p>
         </div>
-        <Link href={`/projects/${projectId}/execution`} className="btn-primary">
-          Open execution grid
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/projects/${projectId}/scope`} className="btn-ghost">Scope</Link>
+          <Link href={`/projects/${projectId}/tasks`} className="btn-ghost">Template</Link>
+          <button type="button" className="btn-ghost"
+            onClick={() => void api.downloadProjectPack(projectId)}>
+            Executive pack (PDF)
+          </button>
+          <Link href={`/projects/${projectId}/execution`} className="btn-primary">
+            Execution grid
+          </Link>
+        </div>
       </div>
 
       <div className="card mb-5 grid grid-cols-2 divide-rule md:grid-cols-3 lg:grid-cols-6">
@@ -353,6 +363,12 @@ export default function ProjectDashboard() {
                 </option>
               ))}
             </select>
+            {circleFilter !== 'all' ? (
+              <button type="button" className="btn-ghost !py-1 !text-xs"
+                onClick={() => void api.downloadCirclePack(projectId, circleFilter)}>
+                {circleFilter} pack (PDF)
+              </button>
+            ) : null}
           </div>
         }
       >
@@ -394,6 +410,10 @@ export default function ProjectDashboard() {
           {visibleNodes.length === 0 ? <Empty message="No nodes match this filter." /> : null}
         </div>
       </Panel>
+
+      <div className="mt-5">
+        <ActionsPanel projectId={projectId} canWrite={can('write')} />
+      </div>
     </Shell>
   );
 }

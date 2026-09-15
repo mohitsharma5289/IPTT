@@ -12,6 +12,12 @@ migrate:
 test:
 	cd backend && python -m pytest tests/ -q
 
+web-build:
+	cd frontend && npm run build
+
+web-check:
+	cd frontend && npx tsc --noEmit
+
 test-all:    ## includes API smoke tests; needs a migrated database
 	cd backend && IPTT_TEST_DB_READY=1 python -m pytest tests/ -q
 

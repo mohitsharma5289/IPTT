@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.api.common import require_project as _require_project, read_upload as _read_upload, xlsx_response
 from app.db import get_db
 from app.domain import delay as delay_rules
 from app.domain.calendar import WorkingCalendar
@@ -248,49 +248,6 @@ def bulk_update(
 # Excel round trip
 # ---------------------------------------------------------------------------
 
-XLSX_MEDIA_TYPE = (
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-
-def _require_project(db: Session, project_id: int) -> Project:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
-
-
-async def _read_upload(file: UploadFile) -> bytes:
-    """Read an upload under a hard size cap.
-
-    The legacy importers passed the file straight to pandas with no bound at
-    all, so one oversized workbook was a memory exhaustion away from an
-    OOMKill under a container limit (audit M12).
-    """
-    settings = get_settings()
-    if file.filename and not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Upload an .xlsx workbook"
-        )
-
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await file.read(1 << 20)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > settings.max_upload_bytes:
-            raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                f"That file is larger than the {settings.max_upload_bytes // (1024 * 1024)} MB limit",
-            )
-        chunks.append(chunk)
-    if not chunks:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The uploaded file is empty")
-    return b"".join(chunks)
-
-
 @router.get("/projects/{project_id}/export")
 def export_execution(
     project_id: int,
@@ -305,16 +262,12 @@ def export_execution(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    safe_name = "".join(
-        ch if ch.isalnum() or ch in "-_" else "_" for ch in project.name
-    )[:60]
-    suffix = f"_{circle}" if circle else ""
-    filename = f"IPTT_{safe_name}{suffix}_{date.today():%Y%m%d}.xlsx"
+    from app.api.common import safe_filename
 
-    return StreamingResponse(
-        iter([content]),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    suffix = f"_{circle}" if circle else ""
+    return xlsx_response(
+        content,
+        f"IPTT_{safe_filename(project.name)}{suffix}_{date.today():%Y%m%d}.xlsx",
     )
 
 

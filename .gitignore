@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Build archives and local snapshots
+*.tgz
+_to_delete/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+*.tsbuildinfo
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Generated at runtime
+migration_quarantine.csv

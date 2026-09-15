@@ -6,8 +6,18 @@
  *  with `alert()`.
  */
 import type {
+  ActionInput,
+  AdminUser,
+  AuditPage,
   CircleCount,
+  CircleRollup,
   ImportReport,
+  LeadershipAction,
+  ProgrammeRollup,
+  Role,
+  ScopeRow,
+  SheetImportSummary,
+  TemplateRow,
   ExecutionGrid,
   ExecutionUpdate,
   GovernanceMatrix,
@@ -108,6 +118,46 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
+/** Streams a file response to a browser download. */
+async function download(path: string, fallbackName: string): Promise<void> {
+  const response = await fetch(path, { credentials: 'include', cache: 'no-store' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new ApiError(response.status, describe((payload as { detail?: unknown }).detail));
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = match?.[1] ?? fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Posts one file. A 422 carries the validation report, which the caller shows. */
+async function upload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  const token = loadCsrfToken();
+  const response = await fetch(path, {
+    method: 'POST',
+    body: form,
+    credentials: 'include',
+    headers: token ? { 'x-csrf-token': token } : undefined,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (detail && typeof detail === 'object' && 'errors' in detail) return detail as T;
+    throw new ApiError(response.status, describe(detail));
+  }
+  return payload as T;
+}
+
 export const api = {
   // --- auth ---------------------------------------------------------------
   async login(username: string, password: string): Promise<Session> {
@@ -169,28 +219,13 @@ export const api = {
     );
   },
 
-  /** Streams the workbook straight to a download. */
-  async exportWorkbook(id: number, circle?: string): Promise<void> {
-    const path = circle
-      ? `/api/execution/projects/${id}/export?circle=${encodeURIComponent(circle)}`
-      : `/api/execution/projects/${id}/export`;
-    const response = await fetch(path, { credentials: 'include', cache: 'no-store' });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new ApiError(response.status, describe((payload as { detail?: unknown }).detail));
-    }
-    const blob = await response.blob();
-    const disposition = response.headers.get('content-disposition') ?? '';
-    const match = /filename="?([^";]+)"?/.exec(disposition);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = match?.[1] ?? `iptt-execution-${id}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  },
+  exportWorkbook: (id: number, circle?: string) =>
+    download(
+      circle
+        ? `/api/execution/projects/${id}/export?circle=${encodeURIComponent(circle)}`
+        : `/api/execution/projects/${id}/export`,
+      `iptt-execution-${id}.xlsx`,
+    ),
 
   async importWorkbook(
     id: number,
@@ -226,4 +261,112 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ updates }),
     }),
+
+  // --- scope ---------------------------------------------------------------
+  scope: (id: number) => request<ScopeRow[]>(`/api/projects/${id}/scope`),
+  addScope: (id: number, body: Omit<ScopeRow, 'id' | 'status' | 'task_count' | 'has_execution_data'>) =>
+    request<ScopeRow>(`/api/projects/${id}/scope`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteScope: (id: number, scopeId: number, force = false) =>
+    request<void>(`/api/projects/${id}/scope/${scopeId}?force=${force}`, {
+      method: 'DELETE',
+    }),
+  importScope: (id: number, file: File, dryRun: boolean, replace = false) =>
+    upload<SheetImportSummary>(
+      `/api/projects/${id}/scope/import?dry_run=${dryRun}&replace=${replace}`,
+      file,
+    ),
+
+  // --- task template -------------------------------------------------------
+  template: (id: number) => request<TemplateRow[]>(`/api/projects/${id}/template`),
+  importTemplate: (id: number, file: File, dryRun: boolean, forceRemove = false) =>
+    upload<SheetImportSummary>(
+      `/api/projects/${id}/template/import?dry_run=${dryRun}&force_remove=${forceRemove}`,
+      file,
+    ),
+
+  // --- leadership actions --------------------------------------------------
+  actions: (id: number) =>
+    request<LeadershipAction[]>(`/api/projects/${id}/actions`),
+  createAction: (id: number, body: ActionInput) =>
+    request<LeadershipAction>(`/api/projects/${id}/actions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateAction: (actionId: number, body: ActionInput) =>
+    request<LeadershipAction>(`/api/actions/${actionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteAction: (actionId: number) =>
+    request<void>(`/api/actions/${actionId}`, { method: 'DELETE' }),
+
+  // --- administration ------------------------------------------------------
+  users: () => request<AdminUser[]>('/api/users'),
+  createUser: (username: string, password: string, role: Role) =>
+    request<AdminUser>('/api/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role }),
+    }),
+  setUserRole: (userId: number, role: Role) =>
+    request<AdminUser>(`/api/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+  setUserActive: (userId: number, isActive: boolean) =>
+    request<AdminUser>(`/api/users/${userId}/active`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: isActive }),
+    }),
+  resetUserPassword: (userId: number) =>
+    request<{ username: string; temporary_password: string; note: string }>(
+      `/api/users/${userId}/reset-password`,
+      { method: 'POST' },
+    ),
+  setUserAssignments: (userId: number, projectIds: number[]) =>
+    request<AdminUser>(`/api/users/${userId}/assignments`, {
+      method: 'PUT',
+      body: JSON.stringify({ project_ids: projectIds }),
+    }),
+
+  // --- audit ---------------------------------------------------------------
+  audit: (params: {
+    project_id?: number;
+    action?: string;
+    source?: string;
+    actor?: string;
+    cursor?: number;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value));
+    }
+    return request<AuditPage>(`/api/audit?${query}`);
+  },
+  auditActions: () => request<string[]>('/api/audit/actions'),
+
+  // --- rollups and PDF -----------------------------------------------------
+  narrative: (id: number) =>
+    request<{ narrative: string }>(`/api/reporting/projects/${id}/narrative`),
+  circleRollup: (id: number) =>
+    request<{ circles: CircleRollup[] }>(`/api/reporting/projects/${id}/circles`),
+  programmeRollup: (id: number) =>
+    request<ProgrammeRollup>(`/api/reporting/programmes/${id}/rollup`),
+
+  downloadProjectPack: (id: number) =>
+    download(`/api/reporting/projects/${id}/pack.pdf`, `iptt-project-${id}.pdf`),
+  downloadProgrammePack: (id: number) =>
+    download(`/api/reporting/programmes/${id}/pack.pdf`, `iptt-programme-${id}.pdf`),
+  downloadCirclePack: (id: number, circle: string) =>
+    download(
+      `/api/reporting/projects/${id}/circles/${encodeURIComponent(circle)}/pack.pdf`,
+      `iptt-${circle}-${id}.pdf`,
+    ),
+  downloadScopeTemplate: (id: number) =>
+    download(`/api/projects/${id}/scope/template`, `iptt-scope-template-${id}.xlsx`),
+  downloadTemplate: (id: number) =>
+    download(`/api/projects/${id}/template/export`, `iptt-template-${id}.xlsx`),
 };

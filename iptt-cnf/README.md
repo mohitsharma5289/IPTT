@@ -22,19 +22,25 @@ Target architecture, as agreed:
 - Alembic baseline, reference-data seed, and the confirmed Security Clearance change
 - The eight agreed business rules, implemented and unit-tested
 - SQLite → PostgreSQL ETL with quarantine reporting and a verification pass
-- 25 API endpoints: auth with lockout and CSRF, health probes, programmes,
-  projects, reporting, execution grid, baseline/re-baseline
-- **Next.js frontend**: sign-in, portfolio with pipeline buckets, project
-  executive dashboard, and the execution grid with auto-saving inline edits
-- **Excel round trip**: export, validated import with a dry-run preview, fully
-  audited — replacing the legacy importer that matched columns by position
+- 49 API endpoints: auth with lockout and CSRF, health probes, programmes,
+  projects, reporting, execution grid, baseline/re-baseline, scope management,
+  task-template management, user administration, leadership actions, audit log
+- **Next.js frontend**, 9 routes: sign-in, portfolio with pipeline buckets,
+  programme roll-up, project executive dashboard, the execution grid with
+  auto-saving inline edits, scope editor, task-template editor, user
+  administration, audit log
+- **Excel round trip** on all three sheets — execution, scope and task template:
+  export, validated import with a dry-run preview, fully audited — replacing the
+  legacy importer that matched columns by position
+- **PDF executive packs** at project, programme and circle level: KPI band,
+  vector bar charts, circle and node tables, generated server-side with ReportLab
 - **OpenShift manifests**: PostgreSQL StatefulSet + PVC, migration Job, API and
   web Deployments, edge-TLS Route, NetworkPolicies, PDBs, nightly backup CronJob,
   Kustomize dev/prod overlays
-- Dockerfiles for both services, docker-compose, 84 passing tests
+- Dockerfiles for both services, docker-compose, 114 passing tests
 
-**Not yet built:** PDF export, scope and task management screens, user
-administration, leadership action tracker.
+Every screen in the legacy GUI now has a replacement. Feature work from here is
+enhancement, not parity.
 
 ---
 
@@ -119,9 +125,15 @@ frontend/
     app/              App Router pages
       login/          sign-in
       page.tsx        portfolio, bucketed into Ongoing / Setup / Completed
-      projects/[id]/  executive dashboard
+      programmes/[id]/           programme roll-up, weakest circle first
+      projects/[id]/             executive dashboard
       projects/[id]/execution/   the PM working grid
-    components/       session context, shell, shared primitives
+      projects/[id]/scope/       node list, add/remove, sheet round trip
+      projects/[id]/tasks/       task template, dependencies, sheet round trip
+      admin/users/               accounts, roles, assignments, resets
+      admin/audit/               keyset-paginated audit log
+    components/       session context, shell, shared primitives,
+                      workbook grid, sheet import dialog, actions panel
     lib/api.ts        the only place fetch, credentials and CSRF are handled
 backend/
   app/
@@ -140,9 +152,11 @@ backend/
     services/          orchestration that touches the database
       baseline.py      Day-0 planning and re-baselining
       excel.py         the workbook round trip
+      rollup.py        circle and programme aggregates, narrative
+      pdf.py           the executive packs
   alembic/versions/    0001 schema, 0002 reference data, 0003 stage correction
   etl/                 migration and verification
-  tests/               84 tests
+  tests/               114 tests
 deploy/
   base/                every Kubernetes resource
   overlays/dev|prod/   Kustomize overlays
@@ -205,6 +219,38 @@ execution rows by position. Inserting or moving one column wrote dates onto the
 wrong activities across all 57 nodes, with no error, no audit entry and no
 authentication (audit C3, B5, H12). `tests/test_excel.py` shuffles the columns
 and asserts nothing changes.
+
+---
+
+## Executive packs
+
+`GET /api/reporting/projects/{id}/pack.pdf`, `…/programmes/{id}/pack.pdf` and
+`…/projects/{id}/circles/{circle}/pack.pdf` render a landscape A4 pack: a KPI
+band, the stage distribution and circle health as vector bar charts, then the
+node table. Charts are drawn as styled tables rather than rasterised through
+Matplotlib, so the pack is a few hundred kilobytes and stays sharp when printed,
+and the API image needs no font or graphics stack beyond ReportLab.
+
+Every figure in the pack comes from the same `rollup.py` functions the dashboard
+calls, so a pack and the screen it was generated from can never disagree.
+
+---
+
+## Administration
+
+- **Users** — create, change role, deactivate, reset password, assign projects.
+  The API refuses to let you demote or deactivate yourself, or to remove the last
+  active admin. A reset returns a one-time password; hashes are never readable.
+- **Scope** — add and remove nodes, or upload the scope sheet. Removing a node
+  that has recorded dates returns 409 and names them; `force=true` is deliberate.
+- **Task template** — edit activities, durations and predecessors. Changes are
+  reconciled by template task number, never by delete-and-reinsert, so execution
+  history survives. Dangling predecessors and dependency cycles are rejected
+  before anything is written.
+- **Audit log** — every write, with actor, source, field, before and after.
+  Keyset-paginated and filterable; nothing ages out of reach.
+- **Leadership actions** — the escalation list, ordered by priority then age,
+  attachable to a circle, node or risk area.
 
 ---
 

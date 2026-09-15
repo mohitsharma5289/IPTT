@@ -28,7 +28,19 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, execution, health, programmes, projects, reporting
+from app.api import (
+    audit,
+    auth,
+    execution,
+    health,
+    leadership,
+    programmes,
+    projects,
+    reporting,
+    scope,
+    tasks,
+    users,
+)
 from app.config import get_settings
 from app.db import engine
 from app.logging_config import configure_logging, request_id_var
@@ -140,6 +152,11 @@ def create_app() -> FastAPI:
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
     app.include_router(execution.router, prefix="/api/execution", tags=["execution"])
     app.include_router(reporting.router, prefix="/api/reporting", tags=["reporting"])
+    app.include_router(scope.router, prefix="/api", tags=["scope"])
+    app.include_router(tasks.router, prefix="/api", tags=["template"])
+    app.include_router(leadership.router, prefix="/api", tags=["leadership"])
+    app.include_router(users.router, prefix="/api/users", tags=["users"])
+    app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
     return app
 
 

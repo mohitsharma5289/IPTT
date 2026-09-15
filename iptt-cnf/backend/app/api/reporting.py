@@ -16,11 +16,16 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from dataclasses import asdict
+
+from app.api.common import pdf_response, safe_filename
 from app.db import get_db
 from app.domain.delay import AT_RISK_THRESHOLD_DAYS
 from app.domain.stages import StageModel, governance_matrix, resolve_many, summarise
-from app.models import Project, Scope, Task, TaskExecution
+from app.models import Programme, Project, Scope, Task, TaskExecution
 from app.security import CurrentUser, get_current_user
+from app.services import pdf as pdf_service
+from app.services.rollup import circle_rollups, programme_rollup, project_narrative
 
 router = APIRouter()
 
@@ -212,3 +217,113 @@ def stage_ladder(
             for s in model.ordered
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Narrative, circle rollup and programme rollup
+# ---------------------------------------------------------------------------
+
+
+@router.get("/projects/{project_id}/narrative")
+def narrative(
+    project_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    """One paragraph, generated from the same figures as the KPIs.
+
+    The legacy narrative printed a *task* name under the label "Most delayed
+    stage", and separately computed a `most_delayed_stage` that was really the
+    least mature stage present and was never used (audit H11).
+    """
+    _load_project(db, project_id)
+    return {"project_id": project_id, "narrative": project_narrative(db, project_id)}
+
+
+@router.get("/projects/{project_id}/circles")
+def project_circle_rollup(
+    project_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    """Per-circle health, weakest first."""
+    _load_project(db, project_id)
+    return {
+        "project_id": project_id,
+        "circles": [asdict(c) for c in circle_rollups(db, project_id)],
+    }
+
+
+@router.get("/programmes/{programme_id}/rollup")
+def programme_summary(
+    programme_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    """Programme aggregate, weighted by node.
+
+    The legacy version averaged project healths unweighted, counted projects per
+    circle while calling them nodes, and raised NameError for a programme with
+    no projects (audit H9, H10, C12).
+    """
+    rollup = programme_rollup(db, programme_id)
+    if rollup is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Programme not found")
+    return asdict(rollup)
+
+
+# ---------------------------------------------------------------------------
+# PDF packs
+# ---------------------------------------------------------------------------
+
+
+@router.get("/projects/{project_id}/pack.pdf")
+def project_pdf(
+    project_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    project = _load_project(db, project_id)
+    try:
+        content = pdf_service.project_pack(db, project_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return pdf_response(
+        content, f"IPTT_{safe_filename(project.name)}_{date.today():%Y%m%d}.pdf"
+    )
+
+
+@router.get("/programmes/{programme_id}/pack.pdf")
+def programme_pdf(
+    programme_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    programme = db.get(Programme, programme_id)
+    if programme is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Programme not found")
+    try:
+        content = pdf_service.programme_pack(db, programme_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return pdf_response(
+        content, f"IPTT_{safe_filename(programme.name)}_{date.today():%Y%m%d}.pdf"
+    )
+
+
+@router.get("/projects/{project_id}/circles/{circle}/pack.pdf")
+def circle_pdf(
+    project_id: int,
+    circle: str,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+):
+    project = _load_project(db, project_id)
+    try:
+        content = pdf_service.circle_pack(db, project_id, circle)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    return pdf_response(
+        content,
+        f"IPTT_{safe_filename(project.name)}_{safe_filename(circle)}_{date.today():%Y%m%d}.pdf",
+    )
