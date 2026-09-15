@@ -11,6 +11,10 @@
 set -e
 case "$1" in
   migrate) exec alembic upgrade head ;;
+  # Creates the first administrator, without which nothing can log in: the
+  # migrations seed reference data only, never identities. Safe to run every
+  # boot - it does nothing once an active admin exists.
+  bootstrap) exec python -m app.bootstrap ;;
   serve|"") exec gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker \
               --workers "${WEB_CONCURRENCY:-4}" \
               --bind "${BIND_ADDRESS:-[::]:8000}" --access-logfile - ;;

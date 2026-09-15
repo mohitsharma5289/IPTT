@@ -1,0 +1,63 @@
+# Creates the first administrator.
+#
+# The migrations seed reference data only — stages, the task-stage map, capacity
+# rules, holidays — and never identities. On a cluster where the legacy ETL has
+# not been run, `app_user` is therefore empty, and since POST /api/users needs an
+# existing admin and self-registration is disabled, there is no way in at all:
+# the login page is correct, the credentials simply do not exist.
+#
+# Runs after the migration and does nothing once an active admin exists, so it
+# is safe to leave in the overlay across releases.
+#
+# Password: set BOOTSTRAP_ADMIN_PASSWORD in the iptt-app Secret to choose one.
+# Leave it out and a password is generated and written to this Job's log once:
+#   oc logs job/iptt-bootstrap
+# Either way the account must change its password at first sign-in.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iptt-bootstrap
+  labels:
+    app.kubernetes.io/name: iptt
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    # PostSync, not PreSync: the schema has to exist first.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  # Deliberately longer than the migration Job's hour: this Job's log may be the
+  # only copy of a generated password, and a deployment done late on a Friday
+  # should still be recoverable on Monday.
+  ttlSecondsAfterFinished: 259200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iptt
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: iptt-api:latest
+          command: ["/app/entrypoint.sh", "bootstrap"]
+          envFrom:
+            - configMapRef: { name: iptt-config }
+            - secretRef:    { name: iptt-app }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

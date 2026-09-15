@@ -17,6 +17,7 @@ resources:
   - web/deployment.yaml
   - route.yaml
   - migrate-job.yaml
+  - bootstrap-job.yaml
   - networkpolicy.yaml
   - pdb.yaml
   - backup-cronjob.yaml

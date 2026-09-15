@@ -21,6 +21,7 @@ deploy/
 | `Deployment/iptt-api` | FastAPI, stateless, horizontally scalable. |
 | `Deployment/iptt-web` | Next.js, stateless. Proxies `/api/*` to the API service. |
 | `Job/iptt-migrate` | Alembic. Runs to completion **before** the API rolls. |
+| `Job/iptt-bootstrap` | Creates the first administrator. No-op once one exists. |
 | `Route/iptt` | Edge TLS, HTTP redirected. Exposes the web service only. |
 | `CronJob/iptt-backup` + PVC | Nightly `pg_dump`, verified, 14-day retention. Prod only. |
 | 4 × `NetworkPolicy` | Default deny, then router→web, web→api, api→database. |
@@ -72,6 +73,8 @@ anyone with the repository could forge an admin session cookie.
 oc apply -k deploy/overlays/prod
 oc rollout status statefulset/iptt-postgres
 oc wait --for=condition=complete job/iptt-migrate --timeout=300s
+oc wait --for=condition=complete job/iptt-bootstrap --timeout=300s
+oc logs job/iptt-bootstrap          # the first admin password, if generated
 oc rollout status deployment/iptt-api
 oc rollout status deployment/iptt-web
 oc get route iptt -o jsonpath='{.spec.host}{"\n"}'
@@ -146,6 +149,31 @@ copy a dump off-cluster.
 not server-side state. The database is a single replica by design — the agreed
 architecture is a StatefulSet with a PVC, not an HA cluster. If you later need
 HA, that is an operator decision, not a manifest change.
+
+---
+
+## The first administrator
+
+The migrations seed reference data only — stages, the task-stage map, capacity
+rules, holidays — and never identities. On a cluster where the legacy ETL has not
+been run, `app_user` is empty; `POST /api/users` needs an existing admin and
+self-registration is disabled, so there is no way in at all. The login page is
+correct, the credentials simply do not exist.
+
+`bootstrap-job.yaml` closes that. It runs after the migration, creates one
+administrator, and does nothing on subsequent releases once an active admin
+exists — so it is safe to leave in the overlay.
+
+Set `BOOTSTRAP_ADMIN_PASSWORD` in the `iptt-app` Secret to choose the password.
+Leave it out and one is generated and written to the Job's log exactly once:
+
+```bash
+oc logs job/iptt-bootstrap
+```
+
+That is why this Job's `ttlSecondsAfterFinished` is three days rather than the
+migration Job's hour: its log may be the only copy of that password. Either way
+the account is flagged `must_change_password`.
 
 ---
 

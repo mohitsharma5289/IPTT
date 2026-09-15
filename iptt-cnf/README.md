@@ -37,7 +37,7 @@ Target architecture, as agreed:
 - **OpenShift manifests**: PostgreSQL StatefulSet + PVC, migration Job, API and
   web Deployments, edge-TLS Route, NetworkPolicies, PDBs, nightly backup CronJob,
   Kustomize dev/prod overlays
-- Dockerfiles for both services, docker-compose, 114 passing tests
+- Dockerfiles for both services, docker-compose, 121 passing tests
 
 Every screen in the legacy GUI now has a replacement. Feature work from here is
 enhancement, not parity.
@@ -48,10 +48,25 @@ enhancement, not parity.
 
 ```bash
 cp backend/.env.example backend/.env      # then set SESSION_SECRET
-docker compose up --build                 # postgres + migrations + api + web
+docker compose up --build                 # postgres, migrations, first admin, api, web
+docker compose logs bootstrap             # the generated admin password, printed once
 open http://localhost:3000                # the application
 open http://localhost:8000/api/docs       # the API
 ```
+
+**Signing in the first time.** The migrations seed reference data only — stages,
+the task-stage map, capacity rules, holidays — never identities. A freshly
+migrated database has an empty `app_user` table, and since creating a user needs
+an existing admin and self-registration is disabled, there would otherwise be no
+way in at all. The `bootstrap` step closes that: it creates one administrator,
+generates a password if you did not supply one, and prints it to its log exactly
+once. Set `BOOTSTRAP_ADMIN_PASSWORD` to choose your own. Either way the account
+must change its password at first sign-in, and running it again does nothing
+once an active admin exists.
+
+If instead you migrate the legacy dataset, its four accounts come with it — all
+flagged `must_change_password`, because the legacy repository committed their
+credentials.
 
 The browser only ever talks to the frontend origin. Next proxies `/api/*` to the
 backend, so the session cookie stays first-party and CORS does not apply in the
@@ -154,9 +169,10 @@ backend/
       excel.py         the workbook round trip
       rollup.py        circle and programme aggregates, narrative
       pdf.py           the executive packs
+    bootstrap.py       creates the first administrator
   alembic/versions/    0001 schema, 0002 reference data, 0003 stage correction
   etl/                 migration and verification
-  tests/               114 tests
+  tests/               121 tests
 deploy/
   base/                every Kubernetes resource
   overlays/dev|prod/   Kustomize overlays
