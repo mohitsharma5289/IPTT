@@ -271,10 +271,27 @@ the database only from the API, enforced by NetworkPolicy.
 ## IPv6
 
 The stack runs dual-stack. Both containers bind `::`, which on Linux serves IPv4
-clients too as v4-mapped addresses, so one listener covers both families. The
-compose network is dual-stack, and all three OpenShift Services declare
-`ipFamilyPolicy: PreferDualStack` — a Service without it is SingleStack in the
-cluster's primary family only, and the other family fails silently.
+clients too as v4-mapped addresses, so one listener covers both families. All
+three OpenShift Services declare `ipFamilyPolicy: PreferDualStack` — a Service
+without it is SingleStack in the cluster's primary family only, and the other
+family fails silently.
+
+Under compose the containers attach to the runtime's **existing default
+network** rather than one compose creates, so `podman network ls` stays clean
+and the containers sit on whatever the host already routes. That means the
+address families — and container DNS — come from that network, not from this
+repository. Two things to confirm on a new host:
+
+```bash
+podman network inspect podman --format '{{.DNSEnabled}}'    # must be true
+podman network inspect podman --format '{{.IPv6Enabled}}'   # true for v6
+```
+
+Podman's default network ships with DNS **disabled**, unlike user-defined
+networks. With DNS off, the `db` and `api` hostnames do not resolve and the API
+cannot reach the database. If that first command prints `false`, either point
+`PODMAN_NETWORK` at a DNS-enabled network or use the project-owned bridge kept
+commented at the foot of `docker-compose.yml`.
 
 Two escape hatches, for a host or CI runner where IPv6 is disabled:
 

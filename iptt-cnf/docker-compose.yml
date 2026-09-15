@@ -1,14 +1,27 @@
 # Local development stack. Mirrors the OpenShift topology: PostgreSQL with a
 # persistent volume, migrations as a separate one-shot step, then the API.
 #
-# The stack runs on a dual-stack bridge: every container gets both an IPv4 and
-# an IPv6 address, and the services bind the IPv6 wildcard, which serves both.
-# Container-to-container traffic (web -> api -> db) therefore prefers IPv6.
+# NETWORK: the stack attaches to the container runtime's existing default
+# network rather than creating one of its own, so `podman network ls` shows no
+# new entry and the containers sit on whatever the host already routes. The
+# name is the podman default; set PODMAN_NETWORK to use another, or see the
+# commented block at the foot of this file to go back to a project-owned
+# dual-stack bridge.
 #
-# Published ports use the short form, which binds the host's IPv4 wildcard. To
-# reach a service over IPv6 from the host as well, write the long form -
-# "[::]:3000:3000" - alongside it. Nothing inside the stack depends on that;
-# it only affects how your browser reaches the published port.
+# Two consequences of using the default network, both worth knowing:
+#
+#   * DNS. Podman's default "podman" network ships with dns_enabled: false,
+#     while user-defined networks enable it. Without DNS the hostnames below
+#     (db, api) do not resolve and the API cannot reach the database. Check
+#     with:  podman network inspect podman --format '{{.DNSEnabled}}'
+#     If that prints false, either enable DNS on the network or create a
+#     user-defined one - the commented block at the foot of this file.
+#
+#   * IPv6. The address families now come from that network, not from here.
+#     The containers still bind the IPv6 wildcard and serve both families, but
+#     they only get a v6 address if the default network provides one. Check
+#     with: podman network inspect podman --format '{{.IPv6Enabled}}'
+#
 services:
   db:
     image: postgres:16-alpine
@@ -23,7 +36,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [iptt]
 
   migrate:
     build: ./backend
@@ -33,7 +45,6 @@ services:
       SESSION_SECRET: local-development-secret-not-for-deployment
     depends_on:
       db: {condition: service_healthy}
-    networks: [iptt]
 
   api:
     build: ./backend
@@ -49,7 +60,6 @@ services:
     depends_on:
       db: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
-    networks: [iptt]
 
   web:
     build: ./frontend
@@ -60,18 +70,28 @@ services:
     ports: ["3000:3000"]
     depends_on:
       api: {condition: service_started}
-    networks: [iptt]
 
 volumes:
   pgdata:
 
 networks:
-  iptt:
-    enable_ipv6: true
-    ipam:
-      config:
-        # Explicit subnets so the stack does not depend on the runtime having a
-        # default IPv6 pool configured - podman and older Docker daemons do not.
-        # Change them if either range collides with something on your host.
-        - subnet: 172.31.240.0/24
-        - subnet: fd3a:9c21:44b7:1::/64
+  # "default" is the network compose puts every service on when none is named.
+  # Pointing it at an existing network with external: true stops compose from
+  # creating and tearing down one of its own.
+  default:
+    # If your podman-compose is old enough not to interpolate ${VAR:-default},
+    # replace the whole value with the literal network name.
+    name: ${PODMAN_NETWORK:-podman}
+    external: true
+
+# To go back to a project-owned dual-stack bridge instead - useful if the
+# default network has DNS disabled, or has no IPv6 - delete the block above,
+# add "networks: [iptt]" to each service, and uncomment:
+#
+# networks:
+#   iptt:
+#     enable_ipv6: true
+#     ipam:
+#       config:
+#         - subnet: 172.31.240.0/24
+#         - subnet: fd3a:9c21:44b7:1::/64
