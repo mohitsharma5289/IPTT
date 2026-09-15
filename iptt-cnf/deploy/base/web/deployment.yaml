@@ -40,10 +40,13 @@ spec:
             - name: http
               containerPort: 3000
           env:
-            # Next proxies /api/* here, so the browser only ever talks to this
-            # origin. The session cookie stays first-party and CORS never applies.
-            - name: API_ORIGIN
-              value: "http://iptt-api:8000"
+            # NO API_ORIGIN here. Next evaluates rewrites during `next build`
+            # and serialises them into routes-manifest.json, which the
+            # standalone server reads at startup - so a runtime value is
+            # silently ignored and the pod proxies to the built-in default,
+            # failing with ECONNREFUSED. The image is built against
+            # http://iptt-api:8000, which is Service/iptt-api. To change it,
+            # rebuild with --build-arg API_ORIGIN=..., never with an env var.
             - name: NODE_ENV
               value: "production"
           resources:

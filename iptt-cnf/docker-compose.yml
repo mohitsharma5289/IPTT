@@ -63,7 +63,7 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
-  api:
+  iptt-api:
     build: ./backend
     entrypoint: ["/app/entrypoint.sh", "serve"]
     environment:
@@ -81,13 +81,12 @@ services:
 
   web:
     build: ./frontend
-    environment:
-      # The browser talks only to the frontend origin; Next proxies /api to the
-      # backend, so the session cookie stays first-party and CORS never applies.
-      API_ORIGIN: http://api:8000
+    # No API_ORIGIN here: Next bakes the rewrite destination into the build,
+    # so a runtime value is silently ignored. The image is built against
+    # http://iptt-api:8000, which is why the API service is named iptt-api.
     ports: ["3000:3000"]
     depends_on:
-      api: {condition: service_started}
+      iptt-api: {condition: service_started}
 
 volumes:
   pgdata:

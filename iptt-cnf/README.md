@@ -72,6 +72,19 @@ The browser only ever talks to the frontend origin. Next proxies `/api/*` to the
 backend, so the session cookie stays first-party and CORS does not apply in the
 deployed topology.
 
+**The proxy destination is a build-time value, not a runtime one.** Next
+evaluates `rewrites()` during `next build` and serialises the result into
+`.next/routes-manifest.json`; the standalone server reads that file at startup.
+Setting `API_ORIGIN` as a container environment variable therefore does nothing
+— the symptom is the web container proxying to the default and failing every
+request with `ECONNREFUSED`. The image is built against `http://iptt-api:8000`,
+which resolves in both environments: `Service/iptt-api` on OpenShift, and the
+compose service deliberately named `iptt-api`. Change it only at build time:
+
+```bash
+docker build --build-arg API_ORIGIN=http://elsewhere:8000 frontend
+```
+
 Migrating the legacy data:
 
 ```bash

@@ -11,6 +11,12 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --ignore-scripts || npm install --ignore-scripts
 COPY . .
+# Next bakes rewrites into routes-manifest.json during the build, so the API
+# origin has to be known HERE, not at container start. The default in
+# next.config.mjs (http://iptt-api:8000) is correct for both compose and
+# OpenShift; this ARG exists only for a deployment where it is not.
+ARG API_ORIGIN
+ENV API_ORIGIN=${API_ORIGIN}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
