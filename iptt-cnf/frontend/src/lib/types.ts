@@ -304,3 +304,43 @@ export interface SheetImportSummary {
   removes?: string[];
   errors: string[];
 }
+
+/** What a project still needs before a plan can be generated.
+ *  `planned` is derived from real planned dates, not from `baseline_version` -
+ *  that starts at 1 on every project and only counts re-baselines. */
+export interface BaselineReadiness {
+  project_id: number;
+  planned: boolean;
+  locked: boolean;
+  baseline_version: number;
+  ready: boolean;
+  missing: string[];
+}
+
+export interface BaselineResult {
+  project_id: number;
+  baseline_version: number;
+  tasks_planned: number;
+  executions_created: number;
+  executions_preserved: number;
+  rows_archived: number;
+  plan_start: string | null;
+  plan_finish: string | null;
+}
+
+export interface BaselineHistoryEntry {
+  baseline_version: number;
+  rows_archived: number;
+  archived_at: string | null;
+  archived_by: string | null;
+  reason: string | null;
+}
+
+export interface TemplateRowWrite {
+  template_task_number: number;
+  name: string;
+  duration_days: number;
+  predecessor_template_number?: number | null;
+  is_prerequisite?: boolean;
+  owner_role?: string | null;
+}

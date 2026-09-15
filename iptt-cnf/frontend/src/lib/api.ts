@@ -7,6 +7,10 @@
  */
 import type {
   ActionInput,
+  BaselineHistoryEntry,
+  BaselineReadiness,
+  BaselineResult,
+  TemplateRowWrite,
   AdminUser,
   AuditPage,
   CircleCount,
@@ -196,6 +200,74 @@ export const api = {
   project: (id: number) => request<Project>(`/api/projects/${id}`),
   circles: (id: number) =>
     request<{ circles: CircleCount[] }>(`/api/projects/${id}/circles`),
+
+  // --- programme lifecycle ------------------------------------------------
+  createProgramme: (body: { name: string; status?: string }) =>
+    request<Programme>('/api/programmes', { method: 'POST', body: JSON.stringify(body) }),
+  updateProgramme: (id: number, body: { name?: string; status?: string }) =>
+    request<Programme>(`/api/programmes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteProgramme: (id: number) =>
+    request<void>(`/api/programmes/${id}`, { method: 'DELETE' }),
+
+  // --- project lifecycle --------------------------------------------------
+  createProject: (body: {
+    programme_id: number;
+    name: string;
+    status?: string;
+    project_start_date?: string | null;
+  }) => request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+  updateProject: (
+    id: number,
+    body: {
+      name?: string;
+      status?: string;
+      project_start_date?: string | null;
+      programme_id?: number;
+    },
+  ) => request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteProject: (id: number, force = false) =>
+    request<void>(`/api/projects/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+
+  // --- planning -----------------------------------------------------------
+  // The plan is generated automatically while no fieldwork has been recorded.
+  // Once an actual start exists the project locks and re-baselining - which
+  // archives the current state first - is the only way to replan.
+  baselineReadiness: (id: number) =>
+    request<BaselineReadiness>(`/api/projects/${id}/baseline-readiness`),
+  baseline: (id: number, body: { kickoff_date?: string | null; reason?: string } = {}) =>
+    request<BaselineResult>(`/api/projects/${id}/baseline`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  rebaseline: (id: number, body: { kickoff_date?: string | null; reason: string }) =>
+    request<BaselineResult>(`/api/projects/${id}/rebaseline`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  baselineHistory: (id: number) =>
+    request<{ project_id: number; baselines: BaselineHistoryEntry[] }>(
+      `/api/projects/${id}/baseline-history`,
+    ),
+
+  // --- task template rows -------------------------------------------------
+  addTemplateRow: (projectId: number, body: TemplateRowWrite) =>
+    request<TemplateRow>(`/api/projects/${projectId}/template`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateTemplateRow: (projectId: number, number: number, body: Partial<TemplateRowWrite>) =>
+    request<TemplateRow>(`/api/projects/${projectId}/template/${number}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteTemplateRow: (projectId: number, number: number, force = false) =>
+    request<void>(
+      `/api/projects/${projectId}/template/${number}${force ? '?force=true' : ''}`,
+      { method: 'DELETE' },
+    ),
 
   // --- reporting ----------------------------------------------------------
   kpis: (id: number) => request<Kpis>(`/api/reporting/projects/${id}/kpis`),

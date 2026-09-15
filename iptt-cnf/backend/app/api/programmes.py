@@ -26,6 +26,13 @@ class ProgrammeCreate(BaseModel):
     status: ProgrammeStatus = ProgrammeStatus.ACTIVE
 
 
+class ProgrammeUpdate(BaseModel):
+    """Every field optional; only what is sent is changed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    status: ProgrammeStatus | None = None
+
+
 @router.get("", response_model=list[ProgrammeSummary])
 def list_programmes(
     db: Session = Depends(get_db), _: CurrentUser = Depends(get_current_user)
@@ -129,3 +136,68 @@ def delete_programme(
     from fastapi import Response
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/{programme_id}", response_model=ProgrammeSummary)
+def update_programme(
+    programme_id: int,
+    payload: ProgrammeUpdate,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_admin),
+    _: None = Depends(require_csrf),
+):
+    programme = db.get(Programme, programme_id)
+    if programme is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Programme not found")
+
+    changes = payload.model_dump(exclude_unset=True)
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+        clash = db.scalar(
+            select(Programme.id).where(
+                Programme.name == changes["name"], Programme.id != programme_id
+            )
+        )
+        if clash:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A programme named '{changes['name']}' already exists",
+            )
+
+    for field, new in changes.items():
+        old = getattr(programme, field)
+        if old == new:
+            continue
+        setattr(programme, field, new)
+        db.add(
+            AuditLog(
+                actor_user_id=user.id,
+                actor_username=user.username,
+                actor_role=user.role,
+                action="PROGRAMME_UPDATE",
+                source="api",
+                field=field,
+                old_value=None if old is None else str(old),
+                new_value=None if new is None else str(new),
+                task_name=programme.name,
+            )
+        )
+
+    db.flush()
+    counts = db.execute(
+        select(
+            func.count(func.distinct(Project.id)),
+            func.count(func.distinct(Scope.id)),
+        )
+        .select_from(Programme)
+        .join(Project, Project.programme_id == Programme.id, isouter=True)
+        .join(Scope, Scope.project_id == Project.id, isouter=True)
+        .where(Programme.id == programme_id)
+    ).one()
+    return ProgrammeSummary(
+        id=programme.id,
+        name=programme.name,
+        status=programme.status,
+        project_count=counts[0],
+        node_count=counts[1],
+    )

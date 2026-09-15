@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain import delay as delay_rules
@@ -284,3 +284,69 @@ def recompute_project_delays(db: Session, project_id: int) -> int:
             calendar, task.planned_finish, execution.actual_finish, scope.circle
         )
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Automatic first baseline
+# ---------------------------------------------------------------------------
+
+#: A project can only be planned once it has all three of these. Creating a
+#: project gives you none of them, so the first baseline cannot happen at
+#: creation time - it happens on whichever later save completes the set.
+BASELINE_PRECONDITIONS = ("a kickoff date", "at least one node in scope", "a task template")
+
+
+def baseline_readiness(db: Session, project_id: int) -> list[str]:
+    """Which preconditions are still missing. Empty list means ready to plan."""
+    project = db.get(Project, project_id)
+    if project is None:
+        return list(BASELINE_PRECONDITIONS)
+
+    missing = []
+    if project.project_start_date is None:
+        missing.append(BASELINE_PRECONDITIONS[0])
+    if not db.scalar(
+        select(func.count()).select_from(Scope).where(Scope.project_id == project_id)
+    ):
+        missing.append(BASELINE_PRECONDITIONS[1])
+    if not db.scalar(
+        select(func.count()).select_from(Task).where(Task.project_id == project_id)
+    ):
+        missing.append(BASELINE_PRECONDITIONS[2])
+    return missing
+
+
+def maybe_autobaseline(
+    db: Session, project_id: int, *, actor: str | None = None
+) -> BaselineResult | None:
+    """Plan the project whenever it is plannable and no fieldwork has started.
+
+    Called after any save that could complete the preconditions - setting the
+    kickoff date, adding scope, changing the task template.
+
+    The gate is `baseline_locked`, which flips true the moment the first actual
+    start is recorded anywhere in the project. Before that there is nothing to
+    lose by re-planning, and re-planning is what the PM wants: an activity
+    added to the template afterwards would otherwise sit there with no dates.
+    After that, replanning would overwrite a plan people are working to, so it
+    becomes a re-baseline - an explicit, reasoned action that archives the
+    current state first (decision 6).
+
+    Note `baseline_version` is NOT the signal here: it starts at 1 on every new
+    project and counts re-baselines, so it says nothing about whether a plan
+    has ever been generated.
+
+    Returns the result if it planned, None if it did nothing.
+    """
+    project = db.get(Project, project_id)
+    if project is None or project.baseline_locked:
+        return None
+    if baseline_readiness(db, project_id):
+        return None
+    return run_baseline(
+        db,
+        project_id,
+        actor=actor,
+        reason="automatic plan",
+        is_rebaseline=False,
+    )

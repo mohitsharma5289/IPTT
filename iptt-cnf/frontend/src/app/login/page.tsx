@@ -41,7 +41,13 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-muted">Sign in to continue.</p>
         </div>
 
-        <form onSubmit={submit} className="card space-y-4 p-5">
+        {/* method="post" matters even though submit() always preventDefaults:
+            between first paint and hydration the handler is not attached yet,
+            and a click in that window performs the browser's own submit. The
+            default is GET, which would put the password in the URL - and so
+            into browser history, the proxy access log and the Referer header.
+            POST keeps it in the body. */}
+        <form method="post" onSubmit={submit} className="card space-y-4 p-5">
           {error ? <ErrorNote message={error} /> : null}
 
           <div>

@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import type { ReactNode } from 'react';
 
 /** Small shared primitives. Deliberately few: the legacy UI had 20 templates
@@ -126,5 +127,79 @@ export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () 
         </button>
       ) : null}
     </div>
+  );
+}
+
+/** A modal dialog.
+ *
+ *  Uses the native <dialog> element so focus trapping, Escape-to-close and the
+ *  top-layer stacking come from the platform rather than from hand-rolled key
+ *  handlers that get it subtly wrong.
+ */
+export function Dialog({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open && !el.open) el.showModal();
+    if (!open && el.open) el.close();
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <dialog
+      ref={ref}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => {
+        // Click on the backdrop (the dialog element itself) closes; clicks on
+        // the inner panel do not bubble up to here.
+        if (e.target === ref.current) onClose();
+      }}
+      className="w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-rule bg-surface p-0 text-ink backdrop:bg-black/40"
+      aria-label={title}
+    >
+      <div className="p-5">
+        <h2 className="text-base font-semibold">{title}</h2>
+        {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
+        <div className="mt-4">{children}</div>
+      </div>
+    </dialog>
+  );
+}
+
+/** A labelled form field. Keeps label/input wiring in one place so every
+ *  dialog gets the same spacing and the same for/id relationship. */
+export function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="label">{label}</span>
+      <div className="mt-1">{children}</div>
+      {hint ? <p className="mt-1 text-xs text-faint">{hint}</p> : null}
+    </label>
   );
 }

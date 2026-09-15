@@ -5,7 +5,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useRequireSession } from '@/components/session';
 import { Shell } from '@/components/shell';
-import { Empty, ErrorNote, Panel, Spinner, classNames } from '@/components/ui';
+import {
+  Dialog,
+  Empty,
+  ErrorNote,
+  Field,
+  Panel,
+  Spinner,
+  classNames,
+} from '@/components/ui';
+import { ApiError } from '@/lib/api';
 import { api } from '@/lib/api';
 import type { Programme, Project } from '@/lib/types';
 
@@ -78,13 +87,212 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
+const PROJECT_STATUSES = ['Not Started', 'In Progress', 'Completed', 'On Hold'];
+
+/** Create a project.
+ *
+ *  This is the gap that made the rebuild unusable for anything new: the legacy
+ *  app had `create_project_ui`, and until now neither this UI nor the API had
+ *  any equivalent, so the tool could only ever show projects that arrived with
+ *  the data migration.
+ *
+ *  A kickoff date is optional here. Supplying it plans nothing on its own - the
+ *  project also needs scope and a task template, and the plan is generated
+ *  automatically on whichever save completes that set.
+ */
+function NewProjectDialog({
+  open,
+  programmes,
+  defaultProgrammeId,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  programmes: Programme[];
+  defaultProgrammeId?: number;
+  onClose: () => void;
+  onCreated: (project: Project) => void;
+}) {
+  const [name, setName] = useState('');
+  const [programmeId, setProgrammeId] = useState<number | ''>(defaultProgrammeId ?? '');
+  const [status, setStatus] = useState(PROJECT_STATUSES[0]);
+  const [start, setStart] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName('');
+    setProgrammeId(defaultProgrammeId ?? (programmes[0]?.id ?? ''));
+    setStatus(PROJECT_STATUSES[0]);
+    setStart('');
+    setError(null);
+  }, [open, defaultProgrammeId, programmes]);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (programmeId === '') {
+      setError('Pick a programme');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const project = await api.createProject({
+        programme_id: Number(programmeId),
+        name: name.trim(),
+        status,
+        project_start_date: start || null,
+      });
+      onCreated(project);
+      onClose();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Could not create the project',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      title="New project"
+      description="Scope and a task template come next; the plan generates itself once both exist."
+      onClose={onClose}
+    >
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Programme">
+          <select
+            className="field"
+            value={programmeId}
+            onChange={(e) => setProgrammeId(e.target.value ? Number(e.target.value) : '')}
+            required
+          >
+            {programmes.length === 0 ? <option value="">No programmes yet</option> : null}
+            {programmes.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Name">
+          <input
+            className="field"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={200}
+            autoFocus
+          />
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Status">
+            <select className="field" value={status} onChange={(e) => setStatus(e.target.value)}>
+              {PROJECT_STATUSES.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Kickoff date" hint="Optional. Day 0 for the generated plan.">
+            <input
+              type="date"
+              className="field"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </Field>
+        </div>
+
+        {error ? <ErrorNote message={error} /> : null}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn" disabled={busy || programmes.length === 0}>
+            {busy ? 'Creating…' : 'Create project'}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function NewProgrammeDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (programme: Programme) => void;
+}) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setError(null);
+    }
+  }, [open]);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onCreated(await api.createProgramme({ name: name.trim(), status: 'Active' }));
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not create the programme');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} title="New programme" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Name">
+          <input
+            className="field"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={200}
+            autoFocus
+          />
+        </Field>
+        {error ? <ErrorNote message={error} /> : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn" disabled={busy}>
+            {busy ? 'Creating…' : 'Create programme'}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 export default function PortfolioPage() {
-  const { session, loading } = useRequireSession();
+  const { session, loading, can } = useRequireSession();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [programmeFilter, setProgrammeFilter] = useState<number | 'all'>('all');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [newProject, setNewProject] = useState(false);
+  const [newProgramme, setNewProgramme] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -137,7 +345,21 @@ export default function PortfolioPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {can('admin') ? (
+            <>
+              <button type="button" className="btn" onClick={() => setNewProject(true)}>
+                New project
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setNewProgramme(true)}
+              >
+                New programme
+              </button>
+            </>
+          ) : null}
           <label htmlFor="programme" className="label">
             Programme
           </label>
@@ -164,10 +386,39 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      <NewProjectDialog
+        open={newProject}
+        programmes={programmes}
+        defaultProgrammeId={programmeFilter === 'all' ? undefined : programmeFilter}
+        onClose={() => setNewProject(false)}
+        onCreated={() => void load()}
+      />
+      <NewProgrammeDialog
+        open={newProgramme}
+        onClose={() => setNewProgramme(false)}
+        onCreated={() => void load()}
+      />
+
       {error ? <ErrorNote message={error} onRetry={() => void load()} /> : null}
       {busy ? <Spinner label="Loading portfolio" /> : null}
 
-      {!busy && !error ? (
+      {!busy && !error && projects.length === 0 ? (
+        <Panel
+          title="Nothing here yet"
+          subtitle={
+            programmes.length === 0
+              ? 'Start by creating a programme, then a project inside it.'
+              : 'Create a project to get going.'
+          }
+        >
+          <p className="text-sm text-muted">
+            A project needs a kickoff date, its scope of nodes, and a task template.
+            Once all three are in place the plan is generated for you.
+          </p>
+        </Panel>
+      ) : null}
+
+      {!busy && !error && projects.length > 0 ? (
         <div className="space-y-5">
           {(['ongoing', 'setup', 'completed'] as Bucket[]).map((bucket) => (
             <Panel

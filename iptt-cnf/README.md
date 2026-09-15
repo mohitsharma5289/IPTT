@@ -22,9 +22,10 @@ Target architecture, as agreed:
 - Alembic baseline, reference-data seed, and the confirmed Security Clearance change
 - The eight agreed business rules, implemented and unit-tested
 - SQLite → PostgreSQL ETL with quarantine reporting and a verification pass
-- 49 API endpoints: auth with lockout and CSRF, health probes, programmes,
-  projects, reporting, execution grid, baseline/re-baseline, scope management,
-  task-template management, user administration, leadership actions, audit log
+- 63 API routes: auth with lockout and CSRF, health probes, programme and
+  project lifecycle, reporting, execution grid, baseline/re-baseline, scope
+  management, task-template management, user administration, leadership
+  actions, audit log
 - **Next.js frontend**, 9 routes: sign-in, portfolio with pipeline buckets,
   programme roll-up, project executive dashboard, the execution grid with
   auto-saving inline edits, scope editor, task-template editor, user
@@ -37,10 +38,16 @@ Target architecture, as agreed:
 - **OpenShift manifests**: PostgreSQL StatefulSet + PVC, migration Job, API and
   web Deployments, edge-TLS Route, NetworkPolicies, PDBs, nightly backup CronJob,
   Kustomize dev/prod overlays
-- Dockerfiles for both services, docker-compose, 121 passing tests
+- **Project and programme lifecycle**: create, rename, restatus and delete, with
+  the plan generated automatically once a project has a kickoff date, scope and
+  a task template
+- **Task template editing** in place — activities, durations, predecessors —
+  with dependency cycles and dangling predecessors rejected before any write
+- Dockerfiles for both services, docker-compose, 136 passing tests
 
-Every screen in the legacy GUI now has a replacement. Feature work from here is
-enhancement, not parity.
+Every screen in the legacy GUI now has a replacement, and the Day-0 flow —
+create a project, scope it, template it, get a plan — has been driven end to end
+in a browser against an empty database.
 
 ---
 
@@ -118,6 +125,21 @@ implemented in exactly one place and covered by tests.
 | 7 | The planner **ignores `Scope.priority`** | `app/domain/planner.py` |
 | 8 | The two constraint sets **merged into one table** | `app/domain/seed_data.py` |
 
+### Planning is automatic until fieldwork starts
+
+A project is planned the moment it has all three of a kickoff date, scope and a
+task template — there is no separate "generate" button. Adding an activity later
+replans, so it gets dates too.
+
+That stops the instant the first actual start is recorded anywhere in the
+project: `baseline_locked` flips, the plan freezes, and replanning becomes a
+**re-baseline** — explicit, reason-bearing, and archiving the current state
+first (decision 6).
+
+Note `baseline_version` is *not* a "has been planned" flag. It starts at 1 on
+every new project and counts re-baselines only; ask
+`GET /api/projects/{id}/baseline-readiness` instead.
+
 Reference data that used to be Python constants — the stage ladder, the
 task-to-stage map, capacity rules and the holiday calendar — now lives in the
 database, so an admin can correct it without a redeploy.
@@ -185,7 +207,7 @@ backend/
     bootstrap.py       creates the first administrator
   alembic/versions/    0001 schema, 0002 reference data, 0003 stage correction
   etl/                 migration and verification
-  tests/               121 tests
+  tests/               136 tests
 deploy/
   base/                every Kubernetes resource
   overlays/dev|prod/   Kustomize overlays

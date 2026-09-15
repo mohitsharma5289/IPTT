@@ -17,10 +17,29 @@ from sqlalchemy.orm import Session
 
 from app.api.common import XLSX_MEDIA_TYPE, read_upload, require_project, xlsx_response
 from app.db import get_db
+from app.services.baseline import maybe_autobaseline
 from app.models import AuditLog, Scope, Task, TaskExecution
 from app.security import CurrentUser, get_current_user, require_admin, require_csrf
 
 router = APIRouter()
+
+
+def _autobaseline_note(db, project_id: int, actor: str) -> dict | None:
+    """Plan the project if this save was the one that made it plannable.
+
+    Returned to the caller so the UI can say a plan was generated, rather than
+    the dates simply appearing with no explanation.
+    """
+    result = maybe_autobaseline(db, project_id, actor=actor)
+    if result is None:
+        return None
+    return {
+        "generated": True,
+        "baseline_version": result.baseline_version,
+        "tasks_planned": result.tasks_planned,
+        "plan_start": result.plan_start.isoformat() if result.plan_start else None,
+        "plan_finish": result.plan_finish.isoformat() if result.plan_finish else None,
+    }
 
 REQUIRED_COLUMNS = ["Node", "Circle", "Facility", "Servers", "Priority"]
 
@@ -111,6 +130,7 @@ def add_scope(
     )
     db.add(scope)
     db.flush()
+    _autobaseline_note(db, project_id, user.username)
     db.add(
         AuditLog(
             actor_user_id=user.id, actor_username=user.username, actor_role=user.role,
@@ -119,7 +139,8 @@ def add_scope(
             new_value=scope.node_id,
         )
     )
-    return _serialise(db, project_id)[0].model_copy(update={"id": scope.id})
+    db.flush()
+    return next(r for r in _serialise(db, project_id) if r.id == scope.id)
 
 
 @router.delete("/projects/{project_id}/scope/{scope_id}", status_code=204)
@@ -331,4 +352,6 @@ async def import_scope(
             ),
         )
     )
+    db.flush()
+    summary["autobaseline"] = _autobaseline_note(db, project_id, user.username)
     return summary
