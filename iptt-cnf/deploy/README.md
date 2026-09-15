@@ -149,6 +149,55 @@ HA, that is an operator decision, not a manifest change.
 
 ---
 
+## IPv6 and dual-stack
+
+Both containers bind the **IPv6 wildcard**, `::`. On Linux with the default
+`net.ipv6.bindv6only=0`, a socket bound to `::` also accepts IPv4 clients — they
+arrive as v4-mapped addresses — so a single listener serves both families and
+there is no second IPv4-only listener to keep in step.
+
+All three Services declare `ipFamilyPolicy: PreferDualStack`. This matters more
+than it looks: a Service that omits `ipFamilyPolicy` defaults to `SingleStack`
+in the cluster's *primary* family, so on a dual-stack cluster it gets no
+ClusterIP and no DNS record in the other family — and nothing reports an error
+until a client tries to connect over it and times out. `validate.py` fails the
+build if any Service is missing the field.
+
+To pin a cluster to IPv6 only, patch the Services in the overlay:
+
+```yaml
+# deploy/overlays/prod/kustomization.yaml
+patches:
+  - target: {kind: Service}
+    patch: |
+      - op: replace
+        path: /spec/ipFamilyPolicy
+        value: SingleStack
+      - op: add
+        path: /spec/ipFamilies
+        value: [IPv6]
+```
+
+Nothing in the application needs to change for that: the bind address is already
+family-agnostic, and PostgreSQL is reached by Service DNS name, never by literal
+address.
+
+**Where an IPv4 literal would still bite you.** The Postgres readiness probe
+calls `pg_isready -h localhost` rather than `-h 127.0.0.1`, because an IPv6-only
+pod has no `127.0.0.1` to connect to and the probe would fail the pod forever
+while the database itself was perfectly healthy. The NetworkPolicies use pod and
+namespace selectors throughout, never `ipBlock` CIDRs, so they are family-
+agnostic as written — if you ever add an `ipBlock` rule, remember it needs a v6
+CIDR as well as a v4 one; a single-family `ipBlock` silently admits nothing on
+the other family.
+
+**On a host without IPv6**, binding `::` fails outright with
+`[Errno 97] Address family not supported by protocol`. That is why the bind
+address is a variable, not a constant — set `BIND_ADDRESS=0.0.0.0:8000` on the
+API and `HOSTNAME=0.0.0.0` on the web container and both fall back cleanly.
+
+---
+
 ## CI
 
 ```bash

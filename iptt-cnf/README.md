@@ -268,6 +268,27 @@ the database only from the API, enforced by NetworkPolicy.
 
 ---
 
+## IPv6
+
+The stack runs dual-stack. Both containers bind `::`, which on Linux serves IPv4
+clients too as v4-mapped addresses, so one listener covers both families. The
+compose network is dual-stack, and all three OpenShift Services declare
+`ipFamilyPolicy: PreferDualStack` — a Service without it is SingleStack in the
+cluster's primary family only, and the other family fails silently.
+
+Two escape hatches, for a host or CI runner where IPv6 is disabled:
+
+```bash
+BIND_ADDRESS=0.0.0.0:8000   # API
+HOSTNAME=0.0.0.0            # web
+```
+
+Without them, binding `::` on such a host fails with `[Errno 97] Address family
+not supported by protocol`. `deploy/README.md` covers pinning a cluster to IPv6
+only.
+
+---
+
 ## Operational notes
 
 - **Migrations never run on worker start.** `entrypoint.sh migrate` is a separate

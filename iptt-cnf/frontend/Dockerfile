@@ -16,7 +16,10 @@ RUN npm run build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+# HOSTNAME=:: is the dual-stack wildcard the Next standalone server binds to.
+# With net.ipv6.bindv6only=0 (the Linux default) it serves IPv4 clients too, as
+# v4-mapped addresses. Override with -e HOSTNAME=0.0.0.0 where IPv6 is disabled.
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=::
 
 COPY --from=builder --chown=1001:0 /app/.next/standalone ./
 COPY --from=builder --chown=1001:0 /app/.next/static ./.next/static
@@ -27,6 +30,6 @@ USER 1001
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "server.js"]

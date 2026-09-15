@@ -37,9 +37,12 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:8000/healthz || exit 1
 
+# Bound to the dual-stack wildcard. With net.ipv6.bindv6only=0 (the Linux
+# default) this accepts IPv4 clients too, as v4-mapped addresses. Prefer
+# entrypoint.sh, which makes the address overridable via BIND_ADDRESS.
 CMD ["gunicorn", "app.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--workers", "4", \
-     "--bind", "0.0.0.0:8000", \
+     "--bind", "[::]:8000", \
      "--access-logfile", "-", \
      "--timeout", "120"]

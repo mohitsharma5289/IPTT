@@ -51,7 +51,7 @@ spec:
             limits:   { cpu: "2",  memory: 2Gi }
           readinessProbe:
             exec:
-              command: ["/usr/bin/pg_isready", "-h", "127.0.0.1", "-p", "5432"]
+              command: ["/usr/bin/pg_isready", "-h", "localhost", "-p", "5432"]
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3

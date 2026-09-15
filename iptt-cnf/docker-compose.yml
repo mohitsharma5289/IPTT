@@ -1,5 +1,14 @@
 # Local development stack. Mirrors the OpenShift topology: PostgreSQL with a
 # persistent volume, migrations as a separate one-shot step, then the API.
+#
+# The stack runs on a dual-stack bridge: every container gets both an IPv4 and
+# an IPv6 address, and the services bind the IPv6 wildcard, which serves both.
+# Container-to-container traffic (web -> api -> db) therefore prefers IPv6.
+#
+# Published ports use the short form, which binds the host's IPv4 wildcard. To
+# reach a service over IPv6 from the host as well, write the long form -
+# "[::]:3000:3000" - alongside it. Nothing inside the stack depends on that;
+# it only affects how your browser reaches the published port.
 services:
   db:
     image: postgres:16-alpine
@@ -14,6 +23,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [iptt]
 
   migrate:
     build: ./backend
@@ -23,6 +33,7 @@ services:
       SESSION_SECRET: local-development-secret-not-for-deployment
     depends_on:
       db: {condition: service_healthy}
+    networks: [iptt]
 
   api:
     build: ./backend
@@ -38,6 +49,7 @@ services:
     depends_on:
       db: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
+    networks: [iptt]
 
   web:
     build: ./frontend
@@ -48,6 +60,18 @@ services:
     ports: ["3000:3000"]
     depends_on:
       api: {condition: service_started}
+    networks: [iptt]
 
 volumes:
   pgdata:
+
+networks:
+  iptt:
+    enable_ipv6: true
+    ipam:
+      config:
+        # Explicit subnets so the stack does not depend on the runtime having a
+        # default IPv6 pool configured - podman and older Docker daemons do not.
+        # Change them if either range collides with something on your host.
+        - subnet: 172.31.240.0/24
+        - subnet: fd3a:9c21:44b7:1::/64

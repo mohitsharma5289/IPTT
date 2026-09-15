@@ -6,6 +6,11 @@ metadata:
     app.kubernetes.io/name: iptt
     app.kubernetes.io/component: api
 spec:
+  # Dual-stack: the Service gets a ClusterIP in both families where the
+  # cluster provides them, and falls back to whichever single family
+  # exists. Without this a Service defaults to SingleStack in the
+  # cluster's primary family only.
+  ipFamilyPolicy: PreferDualStack
   selector:
     app.kubernetes.io/name: iptt
     app.kubernetes.io/component: api

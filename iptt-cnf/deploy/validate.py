@@ -191,6 +191,24 @@ def check(overlay: str) -> list[str]:
     ):
         fail("no default-deny ingress NetworkPolicy")
 
+    # IP families. A Service with no ipFamilyPolicy defaults to SingleStack in
+    # the cluster's primary family, which on a dual-stack cluster leaves the
+    # other family with no ClusterIP and no DNS record - and the failure is
+    # silent until something tries to connect over it.
+    for svc in by_kind.get("Service", []):
+        policy = svc["spec"].get("ipFamilyPolicy")
+        if policy is None:
+            fail(
+                f"Service {svc['metadata']['name']} does not declare "
+                "ipFamilyPolicy; it will be SingleStack in the cluster's "
+                "primary family only"
+            )
+        elif policy not in {"PreferDualStack", "RequireDualStack", "SingleStack"}:
+            fail(
+                f"Service {svc['metadata']['name']} has an invalid "
+                f"ipFamilyPolicy: {policy!r}"
+            )
+
     return problems
 
 
