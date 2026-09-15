@@ -289,9 +289,20 @@ podman network inspect podman --format '{{.IPv6Enabled}}'   # true for v6
 
 Podman's default network ships with DNS **disabled**, unlike user-defined
 networks. With DNS off, the `db` and `api` hostnames do not resolve and the API
-cannot reach the database. If that first command prints `false`, either point
-`PODMAN_NETWORK` at a DNS-enabled network or use the project-owned bridge kept
-commented at the foot of `docker-compose.yml`.
+cannot reach the database — and it fails at connection time, so the symptom
+looks like a database fault rather than a network one. If that first command
+prints `false`, three routes, in order of least disruption:
+
+1. Enable DNS on the default network by writing its config explicitly —
+   `/etc/containers/networks/podman.json` for rootful podman,
+   `~/.local/share/containers/storage/networks/podman.json` for rootless — with
+   `"dns_enabled": true`, then `podman network reload --all`. A host change, and
+   it affects every project on that VM.
+2. Point `default:` in `docker-compose.yml` at another existing network that has
+   DNS enabled.
+3. Use the project-owned bridge kept commented at the foot of
+   `docker-compose.yml`. This reintroduces the extra entry in
+   `podman network ls`, which is what moving to the default network avoided.
 
 Two escape hatches, for a host or CI runner where IPv6 is disabled:
 

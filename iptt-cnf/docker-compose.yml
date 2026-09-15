@@ -79,9 +79,11 @@ networks:
   # Pointing it at an existing network with external: true stops compose from
   # creating and tearing down one of its own.
   default:
-    # If your podman-compose is old enough not to interpolate ${VAR:-default},
-    # replace the whole value with the literal network name.
-    name: ${PODMAN_NETWORK:-podman}
+    # "podman" is the default network on the target VMs. Named literally rather
+    # than through a variable, so this does not depend on the compose
+    # implementation supporting ${VAR:-default} interpolation. To run against a
+    # different network, change this one value - it must already exist.
+    name: podman
     external: true
 
 # To go back to a project-owned dual-stack bridge instead - useful if the
