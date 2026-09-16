@@ -16,6 +16,7 @@ export default function UsersPage() {
   const isAdmin = can('admin');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [pending, setPending] = useState<AdminUser[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,8 +28,14 @@ export default function UsersPage() {
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const [u, p] = await Promise.all([api.users(), api.projects()]);
-      setUsers(u); setProjects(p); setError(null);
+      const [u, p, q] = await Promise.all([
+        api.users(),
+        api.projects(),
+        // Registration may be switched off, in which case this 404s or returns
+        // nothing. That must not break the page.
+        api.pendingUsers().catch(() => [] as AdminUser[]),
+      ]);
+      setUsers(u); setProjects(p); setPending(q); setError(null);
     } catch (err) {
       setError(err instanceof ApiError && err.isForbidden
         ? 'Administrator access required.'
@@ -57,7 +64,8 @@ export default function UsersPage() {
         <h1 className="text-xl font-semibold">Users</h1>
         <p className="mt-0.5 text-sm text-muted">
           {users.length} account{users.length === 1 ? '' : 's'}
-          {needingRotation ? ` · ${needingRotation} still on a migrated default password` : ''}
+          {needingRotation ? ` · ${needingRotation} still to rotate a password` : ''}
+          {pending.length ? ` · ${pending.length} awaiting approval` : ''}
         </p>
       </div>
 
@@ -66,6 +74,74 @@ export default function UsersPage() {
         <div className="mb-4 rounded border border-accent/40 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {notice}
         </div>
+      ) : null}
+
+      {!busy && pending.length > 0 ? (
+        <>
+          <Panel
+            title="Awaiting approval"
+            subtitle="Self-registered accounts cannot sign in until approved"
+            actions={<span className="font-mono text-xs text-muted">{pending.length}</span>}
+          >
+            <ul className="divide-y divide-rule">
+              {pending.map((user) => (
+                <li key={user.id} className="flex flex-wrap items-center gap-3 py-2">
+                  <span className="font-mono text-sm">{user.username}</span>
+                  <span className="text-xs text-faint">requested an account</span>
+                  <div className="ml-auto flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-ghost !py-1 !text-xs"
+                      onClick={async () => {
+                        try {
+                          await api.approveUser(user.id, 'viewer');
+                          setNotice(`${user.username} approved as a viewer.`);
+                          await load();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not approve');
+                        }
+                      }}
+                    >
+                      Approve as viewer
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost !py-1 !text-xs"
+                      onClick={async () => {
+                        try {
+                          await api.approveUser(user.id, 'pm');
+                          setNotice(`${user.username} approved as a PM.`);
+                          await load();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not approve');
+                        }
+                      }}
+                    >
+                      Approve as PM
+                    </button>
+                    <button
+                      type="button"
+                      className="!py-1 text-xs text-risk hover:underline"
+                      onClick={async () => {
+                        if (!window.confirm(`Reject ${user.username}'s request?`)) return;
+                        try {
+                          await api.rejectUser(user.id);
+                          setNotice(`${user.username}'s request was rejected.`);
+                          await load();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not reject');
+                        }
+                      }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+          <div className="mb-4" />
+        </>
       ) : null}
 
       {busy ? <Spinner label="Loading users" /> : (

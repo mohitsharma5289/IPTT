@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app.models import AppUser, AuditLog
+from app.models.enums import Role
 from app.security import (
     CurrentUser,
     authenticate,
@@ -23,6 +26,11 @@ router = APIRouter()
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=1, max_length=256)
 
 
@@ -105,12 +113,23 @@ def change_password(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(payload: LoginRequest, db: Session = Depends(get_db)):
-    """Self-service registration, off by default.
+@router.post("/register", status_code=status.HTTP_202_ACCEPTED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    """Self-service registration. The account is created *inactive*.
 
-    The legacy endpoint was public, unauthenticated, and created active accounts
-    with no approval and no password rules (audit M9).
+    The legacy endpoint was public, unauthenticated, and created **active**
+    accounts with no approval and no password rules, so anyone who could reach
+    the app could mint themselves a working login (audit M9). Here the account
+    lands pending: an administrator activates it from the Users screen, and
+    until then `authenticate` refuses it because `is_active` is false.
+
+    Two deliberate properties:
+
+      * The response is identical whether or not the username was already
+        taken. Returning 409 here would turn the form into a username oracle
+        for an unauthenticated caller - it would confirm who has an account.
+        An admin sees the collision in the pending queue instead.
+      * Password rules apply at the door, not at first sign-in.
     """
     settings = get_settings()
     if not settings.allow_self_registration:
@@ -118,4 +137,46 @@ def register(payload: LoginRequest, db: Session = Depends(get_db)):
             status.HTTP_403_FORBIDDEN,
             "Self-service registration is disabled. Ask an administrator for an account.",
         )
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not enabled in this deployment")
+
+    username = payload.username.strip()
+    problems = validate_password_strength(payload.password)
+    if problems:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Password " + "; ".join(problems)
+        )
+
+    accepted = {
+        "status": "pending",
+        "detail": (
+            "Your request has been recorded. An administrator must approve the "
+            "account before you can sign in."
+        ),
+    }
+
+    if db.scalar(select(AppUser.id).where(AppUser.username == username)):
+        # Same response as success, deliberately - see the docstring.
+        return accepted
+
+    user = AppUser(
+        username=username,
+        password_hash=hash_password(payload.password),
+        role=Role.VIEWER,
+        is_active=False,
+        must_change_password=False,
+    )
+    db.add(user)
+    db.flush()
+    db.add(
+        AuditLog(
+            actor_user_id=user.id,
+            actor_username=username,
+            actor_role=Role.VIEWER,
+            action="USER_REGISTER",
+            source="self-registration",
+            field="username",
+            old_value=None,
+            new_value=username,
+            task_name=username,
+        )
+    )
+    return accepted

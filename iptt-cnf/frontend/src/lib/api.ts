@@ -7,6 +7,12 @@
  */
 import type {
   ActionInput,
+  CircleDetail,
+  CircleIntelligenceRow,
+  FacilityDetail,
+  GovernanceRow,
+  NodeDetail,
+  ProjectForecast,
   BaselineHistoryEntry,
   BaselineReadiness,
   BaselineResult,
@@ -200,6 +206,44 @@ export const api = {
   project: (id: number) => request<Project>(`/api/projects/${id}`),
   circles: (id: number) =>
     request<{ circles: CircleCount[] }>(`/api/projects/${id}/circles`),
+
+  // --- portfolio-wide reports ("Quick Reports") ---------------------------
+  governance: () =>
+    request<{ programmes: GovernanceRow[]; totals: Record<string, number> }>(
+      '/api/reporting/governance',
+    ),
+  circleIntelligence: () =>
+    request<{ circles: CircleIntelligenceRow[]; totals: Record<string, number> }>(
+      '/api/reporting/circles',
+    ),
+  forecast: (projectId: number) =>
+    request<ProjectForecast>(`/api/reporting/projects/${projectId}/forecast`),
+
+  // --- drill-downs --------------------------------------------------------
+  circleDetail: (projectId: number, circle: string) =>
+    request<CircleDetail>(
+      `/api/reporting/projects/${projectId}/circles/${encodeURIComponent(circle)}`,
+    ),
+  facilityDetail: (projectId: number, facility: string) =>
+    request<FacilityDetail>(
+      `/api/reporting/projects/${projectId}/facilities/${encodeURIComponent(facility)}`,
+    ),
+  nodeDetail: (scopeId: number) => request<NodeDetail>(`/api/reporting/nodes/${scopeId}`),
+
+  // --- self-registration --------------------------------------------------
+  register: (username: string, password: string) =>
+    request<{ status: string; detail: string }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  pendingUsers: () => request<AdminUser[]>('/api/users/pending'),
+  approveUser: (id: number, role: string) =>
+    request<AdminUser>(`/api/users/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
+  rejectUser: (id: number) =>
+    request<void>(`/api/users/${id}/approve`, { method: 'DELETE' }),
 
   // --- programme lifecycle ------------------------------------------------
   createProgramme: (body: { name: string; status?: string }) =>

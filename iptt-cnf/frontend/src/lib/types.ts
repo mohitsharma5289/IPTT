@@ -344,3 +344,149 @@ export interface TemplateRowWrite {
   is_prerequisite?: boolean;
   owner_role?: string | null;
 }
+
+export interface GovernanceRow {
+  programme_id: number;
+  programme_name: string;
+  status: string;
+  total_projects: number;
+  planned_projects: number;
+  planning_completion: number;
+  total_nodes: number;
+  health: number;
+  progress: number;
+  at_risk_nodes: number;
+  total_delay_days: number;
+  health_status: string;
+}
+
+export interface CircleIntelligenceRow {
+  circle: string;
+  facilities: number;
+  programmes: number;
+  projects: number;
+  total_nodes: number;
+  completed_nodes: number;
+  wip_nodes: number;
+  not_started_nodes: number;
+  progress: number;
+  health: number;
+  at_risk_nodes: number;
+  total_delay_days: number;
+  health_status: string;
+}
+
+export interface DelayDriver {
+  activity: string;
+  remaining_days: number;
+}
+
+export interface NodeForecast {
+  scope_id: number;
+  node_id: string;
+  facility_name: string;
+  circle: string;
+  progress: number;
+  performance_factor: number;
+  remaining_days: number;
+  forecast_remaining_days: number;
+  forecast_go_live: string | null;
+  planned_finish: string | null;
+  forecast_delay_days: number;
+  risk: string;
+  confidence: number;
+  confidence_band: string;
+  started: boolean;
+  delay_drivers: DelayDriver[];
+}
+
+export interface CircleForecast {
+  circle: string;
+  nodes: number;
+  average_delay_days: number;
+  average_progress: number;
+  forecast_go_live: string | null;
+  high_risk: number;
+}
+
+export interface ProjectForecast {
+  project_id: number;
+  project_name: string;
+  total_nodes: number;
+  started_nodes: number;
+  high_risk: number;
+  medium_risk: number;
+  low_risk: number;
+  critical_nodes: number;
+  forecast_go_live: string | null;
+  nodes: NodeForecast[];
+  circles: CircleForecast[];
+  insights: string[];
+}
+
+export interface CircleDetail {
+  project_id: number;
+  circle: string;
+  node_count: number;
+  health: number;
+  progress: number;
+  live_nodes: number;
+  stage_mix: Record<string, number>;
+  facilities: string[];
+  nodes: Array<{
+    scope_id: number;
+    node_id: string;
+    facility_name: string;
+    num_servers: number | null;
+    stage: string;
+    weight: number;
+    completed_tasks: number;
+    total_tasks: number;
+    total_delay_days: number;
+    worst_delay_days: number;
+    at_risk: boolean;
+  }>;
+}
+
+export interface FacilityDetail {
+  project_id: number;
+  facility_name: string;
+  circles: string[];
+  node_count: number;
+  health: number;
+  progress: number;
+  total_servers: number;
+  nodes: Array<{
+    scope_id: number;
+    node_id: string;
+    circle: string;
+    num_servers: number | null;
+    stage: string;
+    weight: number;
+    total_delay_days: number;
+  }>;
+}
+
+export interface NodeDetail {
+  scope_id: number;
+  node_id: string;
+  circle: string;
+  facility_name: string;
+  num_servers: number | null;
+  project_id: number;
+  stage: string;
+  weight: number;
+  activities: Array<{
+    template_task_number: number;
+    name: string;
+    duration_days: number;
+    planned_start: string | null;
+    planned_finish: string | null;
+    execution_id: number;
+    actual_start: string | null;
+    actual_finish: string | null;
+    status: string;
+    delay_days: number;
+    delay_reason: string | null;
+  }>;
+}

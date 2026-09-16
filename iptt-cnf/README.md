@@ -26,10 +26,12 @@ Target architecture, as agreed:
   project lifecycle, reporting, execution grid, baseline/re-baseline, scope
   management, task-template management, user administration, leadership
   actions, audit log
-- **Next.js frontend**, 9 routes: sign-in, portfolio with pipeline buckets,
-  programme roll-up, project executive dashboard, the execution grid with
-  auto-saving inline edits, scope editor, task-template editor, user
-  administration, audit log
+- **Next.js frontend**, 19 routes: sign-in, self-registration, account,
+  portfolio with pipeline buckets, the three Quick Reports (governance
+  dashboard, programme view, circle intelligence), project executive dashboard,
+  forecast, execution grid with auto-saving inline edits, scope editor,
+  task-template editor, circle / facility / node drill-downs, user
+  administration with an approval queue, audit log
 - **Excel round trip** on all three sheets — execution, scope and task template:
   export, validated import with a dry-run preview, fully audited — replacing the
   legacy importer that matched columns by position
@@ -43,7 +45,13 @@ Target architecture, as agreed:
   a task template
 - **Task template editing** in place — activities, durations, predecessors —
   with dependency cycles and dangling predecessors rejected before any write
-- Dockerfiles for both services, docker-compose, 136 passing tests
+- **Portfolio-wide reporting**: governance by programme and circle intelligence
+  across every project, neither of which can be summed from the per-project
+  endpoints — health is weighted by node, and a circle spans projects
+- **Forecast**: per-node pace, projected go-live, risk band and blockers,
+  projected over working days
+- **Self-service registration**, pending admin approval
+- Dockerfiles for both services, docker-compose, 162 passing tests
 
 Every screen in the legacy GUI now has a replacement, and the Day-0 flow —
 create a project, scope it, template it, get a plan — has been driven end to end
@@ -144,6 +152,25 @@ implemented in exactly one place and covered by tests.
 | 7 | The planner **ignores `Scope.priority`** | `app/domain/planner.py` |
 | 8 | The two constraint sets **merged into one table** | `app/domain/seed_data.py` |
 
+### Registration is pending by default
+
+`ALLOW_SELF_REGISTRATION=true` opens `/register`. An account created there is
+**inactive**: an administrator approves it from the Users screen before it can
+sign in. The legacy endpoint created *active* accounts with no approval and no
+password rules, so anyone who could reach the page could mint a working login
+(audit M9).
+
+The response is identical whether or not the username was taken — returning a
+conflict would let an unauthenticated caller enumerate who has an account.
+
+### The forecast projects over working days
+
+The legacy forecast added its remaining duration to today as *calendar* days,
+while the duration itself was measured in working days. That inflated every
+projected go-live by roughly 40%, and more across a festival period. The rebuild
+projects over working days, so forecast dates here read earlier than the legacy
+screen for the same data. That is the correction, not a discrepancy.
+
 ### Planning is automatic until fieldwork starts
 
 A project is planned the moment it has all three of a kickoff date, scope and a
@@ -228,7 +255,7 @@ backend/
     bootstrap.py       creates the first administrator
   alembic/versions/    0001 schema, 0002 reference data, 0003 stage correction
   etl/                 migration and verification
-  tests/               136 tests
+  tests/               162 tests
 deploy/
   base/                every Kubernetes resource
   overlays/dev|prod/   Kustomize overlays

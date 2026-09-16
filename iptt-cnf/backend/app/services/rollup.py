@@ -337,3 +337,226 @@ def project_narrative(
     else:
         parts.append("No activity is more than a week late.")
     return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Portfolio-wide aggregates
+# ---------------------------------------------------------------------------
+#
+# These answer questions the per-project endpoints cannot: "how are my
+# programmes doing" and "how is each circle doing across everything we are
+# building". Neither can be derived client-side by summing project responses,
+# because health is weighted by node and a circle spans projects.
+
+
+@dataclass(slots=True)
+class GovernanceRow:
+    """One programme, as the governance dashboard shows it."""
+
+    programme_id: int
+    programme_name: str
+    status: str
+    total_projects: int
+    planned_projects: int      # projects that have a generated plan
+    planning_completion: float  # planned / total, as a percentage
+    total_nodes: int
+    health: float
+    progress: float
+    at_risk_nodes: int
+    total_delay_days: int
+    health_status: str
+
+
+@dataclass(slots=True)
+class CircleIntelligenceRow:
+    """One circle, across every project in the portfolio."""
+
+    circle: str
+    facilities: int
+    programmes: int
+    projects: int
+    total_nodes: int
+    completed_nodes: int
+    wip_nodes: int
+    not_started_nodes: int
+    progress: float
+    health: float
+    at_risk_nodes: int
+    total_delay_days: int
+    health_status: str
+
+
+def _visible_project_ids(db: Session, project_ids: list[int] | None) -> list[int]:
+    """Restrict to what the caller may see; None means the whole portfolio."""
+    if project_ids is not None:
+        return project_ids
+    return list(db.scalars(select(Project.id)).all())
+
+
+def governance_rows(
+    db: Session, project_ids: list[int] | None = None
+) -> list[GovernanceRow]:
+    """Programme-level governance, weakest first.
+
+    "Planned" means the project has generated planned dates - not that
+    `baseline_version` is above zero, which is true of every project from the
+    moment it is created and says nothing about whether planning has happened.
+    """
+    visible = _visible_project_ids(db, project_ids)
+    model = StageModel.from_session(db)
+
+    rows = db.execute(
+        select(
+            Programme.id,
+            Programme.name,
+            Programme.status,
+            Project.id,
+            func.count(func.distinct(Task.id)).filter(
+                Task.planned_finish.is_not(None)
+            ),
+        )
+        .join(Project, Project.programme_id == Programme.id, isouter=True)
+        .join(Task, Task.project_id == Project.id, isouter=True)
+        .where(Project.id.in_(visible) if visible else Project.id.is_(None))
+        .group_by(Programme.id, Programme.name, Programme.status, Project.id)
+    ).all()
+
+    # Programmes with no projects at all still belong on the dashboard.
+    all_programmes = {
+        pid: (name, status)
+        for pid, name, status in db.execute(
+            select(Programme.id, Programme.name, Programme.status)
+        ).all()
+    }
+
+    per_programme: dict[int, list[tuple[int, int]]] = {pid: [] for pid in all_programmes}
+    for programme_id, _name, _status, project_id, planned_tasks in rows:
+        if project_id is not None:
+            per_programme.setdefault(programme_id, []).append(
+                (project_id, planned_tasks or 0)
+            )
+
+    node_stages = resolve_many(model, _stage_rows(db, visible))
+    delays = _delay_by_scope(db, visible)
+    scope_to_project = dict(
+        db.execute(
+            select(Scope.id, Scope.project_id).where(Scope.project_id.in_(visible))
+        ).all()
+        if visible
+        else []
+    )
+
+    out: list[GovernanceRow] = []
+    for programme_id, (name, status) in all_programmes.items():
+        projects = per_programme.get(programme_id, [])
+        project_id_set = {pid for pid, _ in projects}
+        planned = sum(1 for _pid, planned_tasks in projects if planned_tasks > 0)
+
+        members = [
+            stage
+            for scope_id, stage in node_stages.items()
+            if scope_to_project.get(scope_id) in project_id_set
+        ]
+        health, progress, _live, at_risk, delay_days, _dominant = _summarise_group(
+            members, delays
+        )
+        out.append(
+            GovernanceRow(
+                programme_id=programme_id,
+                programme_name=name,
+                status=status,
+                total_projects=len(projects),
+                planned_projects=planned,
+                planning_completion=(
+                    round(planned / len(projects) * 100, 1) if projects else 0.0
+                ),
+                total_nodes=len(members),
+                health=health,
+                progress=progress,
+                at_risk_nodes=at_risk,
+                total_delay_days=delay_days,
+                health_status=health_status(health),
+            )
+        )
+
+    out.sort(key=lambda r: (r.health, -r.total_delay_days))
+    return out
+
+
+def circle_intelligence(
+    db: Session, project_ids: list[int] | None = None
+) -> list[CircleIntelligenceRow]:
+    """Every circle across the portfolio, weakest first.
+
+    A circle spans projects and programmes, which is exactly why this cannot be
+    assembled from the per-project circle roll-up: the same circle appears in
+    several of them and the node counts have to be unioned, not added.
+    """
+    visible = _visible_project_ids(db, project_ids)
+    if not visible:
+        return []
+
+    model = StageModel.from_session(db)
+    node_stages = resolve_many(model, _stage_rows(db, visible))
+    delays = _delay_by_scope(db, visible)
+
+    rows = db.execute(
+        select(
+            Scope.id,
+            Scope.circle,
+            Scope.facility_name,
+            Project.id,
+            Project.programme_id,
+        )
+        .join(Project, Project.id == Scope.project_id)
+        .where(Scope.project_id.in_(visible))
+    ).all()
+
+    grouped: dict[str, dict] = {}
+    for scope_id, circle, facility, project_id, programme_id in rows:
+        bucket = grouped.setdefault(
+            circle,
+            {
+                "scope_ids": [],
+                "facilities": set(),
+                "projects": set(),
+                "programmes": set(),
+            },
+        )
+        bucket["scope_ids"].append(scope_id)
+        bucket["facilities"].add(facility)
+        bucket["projects"].add(project_id)
+        bucket["programmes"].add(programme_id)
+
+    out: list[CircleIntelligenceRow] = []
+    for circle, bucket in grouped.items():
+        members = [
+            node_stages[sid] for sid in bucket["scope_ids"] if sid in node_stages
+        ]
+        health, progress, live, at_risk, delay_days, _dominant = _summarise_group(
+            members, delays
+        )
+        # "Complete" means the node is live - it has reached the terminal stage,
+        # which is what weight 100 encodes. "WIP" is started but not there yet.
+        completed = sum(1 for n in members if n.is_live)
+        started = sum(1 for n in members if n.completed_tasks > 0)
+        out.append(
+            CircleIntelligenceRow(
+                circle=circle,
+                facilities=len(bucket["facilities"]),
+                programmes=len(bucket["programmes"]),
+                projects=len(bucket["projects"]),
+                total_nodes=len(bucket["scope_ids"]),
+                completed_nodes=completed,
+                wip_nodes=max(0, started - completed),
+                not_started_nodes=len(bucket["scope_ids"]) - started,
+                progress=progress,
+                health=health,
+                at_risk_nodes=at_risk,
+                total_delay_days=delay_days,
+                health_status=health_status(health),
+            )
+        )
+
+    out.sort(key=lambda r: (r.health, -r.total_delay_days))
+    return out

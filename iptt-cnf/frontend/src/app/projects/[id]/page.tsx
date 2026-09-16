@@ -499,6 +499,7 @@ export default function ProjectDashboard() {
               Edit
             </button>
           ) : null}
+          <Link href={`/projects/${projectId}/forecast`} className="btn-ghost">Forecast</Link>
           <Link href={`/projects/${projectId}/scope`} className="btn-ghost">Scope</Link>
           <Link href={`/projects/${projectId}/tasks`} className="btn-ghost">Template</Link>
           <button type="button" className="btn-ghost"

@@ -399,6 +399,28 @@ export default function PortfolioPage() {
         onCreated={() => void load()}
       />
 
+      {/* Quick Reports. The legacy home page led with these three, and losing
+          them meant the portfolio-wide views were unreachable even where the
+          data existed. */}
+      <Panel
+        title="Quick reports"
+        subtitle="Across every programme and circle you can see"
+      >
+        <div className="flex flex-wrap gap-2">
+          <Link href="/reports/governance" className="btn-ghost">
+            Governance dashboard
+          </Link>
+          <Link href="/programmes" className="btn-ghost">
+            Programme view
+          </Link>
+          <Link href="/reports/circles" className="btn-ghost">
+            Circle intelligence
+          </Link>
+        </div>
+      </Panel>
+
+      <div className="mb-5" />
+
       {error ? <ErrorNote message={error} onRetry={() => void load()} /> : null}
       {busy ? <Spinner label="Loading portfolio" /> : null}
 

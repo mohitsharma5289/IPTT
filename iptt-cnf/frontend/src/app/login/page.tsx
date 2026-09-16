@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -68,6 +70,12 @@ export default function LoginPage() {
 
           <p className="text-xs text-muted">
             Repeated failed attempts lock the account for 15 minutes.
+        </p>
+        <p className="mt-2 text-center text-xs text-muted">
+          No account?{' '}
+          <Link href="/register" className="text-accent hover:underline">
+            Request one
+          </Link>
           </p>
         </form>
       </div>

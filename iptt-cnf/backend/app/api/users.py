@@ -269,3 +269,87 @@ def set_assignments(
     )
     db.flush()
     return next(u for u in _serialise(db) if u.id == user_id)
+
+
+# ---------------------------------------------------------------------------
+# Self-registration queue
+# ---------------------------------------------------------------------------
+#
+# Registration creates an inactive viewer (see api/auth.register). These are the
+# admin-side controls that let one in, or turn one away.
+
+
+class ApprovalRequest(BaseModel):
+    role: Role = Role.VIEWER
+
+
+@router.get("/pending", response_model=list[UserOut])
+def pending_registrations(
+    db: Session = Depends(get_db), _: CurrentUser = Depends(require_admin)
+):
+    """Accounts awaiting approval: inactive, never signed in, self-registered.
+
+    Deliberately narrower than "every inactive account" - a deactivated former
+    employee is inactive too, and must not appear in a queue whose buttons say
+    Approve.
+    """
+    registered = set(
+        db.scalars(
+            select(AuditLog.actor_user_id).where(AuditLog.action == "USER_REGISTER")
+        ).all()
+    )
+    if not registered:
+        return []
+    return [u for u in _serialise(db) if u.id in registered and not u.is_active]
+
+
+@router.post("/{user_id}/approve", response_model=UserOut)
+def approve_registration(
+    user_id: int,
+    payload: ApprovalRequest,
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_admin),
+    _: None = Depends(require_csrf),
+):
+    """Activate a self-registered account, optionally at a higher role."""
+    user = db.get(AppUser, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if user.is_active:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That account is already active")
+
+    user.is_active = True
+    user.role = payload.role
+    _audit(db, actor, "USER_APPROVE", user, "is_active", "False", "True")
+    if payload.role != Role.VIEWER:
+        _audit(db, actor, "USER_APPROVE", user, "role", Role.VIEWER, payload.role)
+    db.flush()
+    return next(u for u in _serialise(db) if u.id == user_id)
+
+
+@router.delete("/{user_id}/approve", status_code=204, response_class=Response)
+def reject_registration(
+    user_id: int,
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_admin),
+    _: None = Depends(require_csrf),
+):
+    """Turn away a pending registration.
+
+    The row is deleted rather than left inactive forever: it never became a real
+    account, so there is no history to preserve, and leaving it would block the
+    username permanently. The audit entry records the rejection, and survives
+    because audit rows keep the username as plain text.
+    """
+    user = db.get(AppUser, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if user.is_active:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "That account is active. Deactivate it instead of rejecting it.",
+        )
+
+    _audit(db, actor, "USER_REJECT", user, "username", user.username, None)
+    db.delete(user)
+    return Response(status_code=204)

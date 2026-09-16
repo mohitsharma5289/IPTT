@@ -101,10 +101,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
             {session ? (
               <>
-                <span className="hidden text-xs text-muted sm:inline">
+                <Link
+                  href="/account"
+                  className="hidden text-xs text-muted hover:text-accent sm:inline"
+                >
                   {session.username}
                   <span className="ml-1.5 font-mono uppercase text-faint">{session.role}</span>
-                </span>
+                </Link>
                 <button type="button" onClick={() => void signOut()} className="btn-ghost !py-1 !text-xs">
                   Sign out
                 </button>
@@ -115,8 +118,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         {session?.must_change_password ? (
           <div className="border-t border-warn/30 bg-warn/10 px-4 py-1.5 text-center text-xs text-warn">
-            This account still uses its migrated default password. Change it before doing
-            anything else.
+            This account still uses the password it was issued with.{' '}
+            <Link href="/account" className="font-medium underline">
+              Change it now
+            </Link>
+            .
           </div>
         ) : null}
       </header>
