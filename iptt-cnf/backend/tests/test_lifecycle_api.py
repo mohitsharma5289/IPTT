@@ -1,12 +1,10 @@
 """Project and programme lifecycle, and the automatic first baseline.
 
-These cover the path a brand-new deployment takes and that the migrated
-dataset hid completely: create a programme, create a project, give it scope and
-a template, and watch it become plannable. Until this module existed the API
-had no way to create a project at all.
+These cover the path a brand-new deployment takes: create a programme, create a
+project, give it scope and a template, and watch it become plannable. Until this
+module existed the API had no way to create a project at all.
 
-Everything runs inside one programme that is deleted at the end, so the
-migrated data is untouched.
+Everything runs inside one programme that is deleted at the end.
 """
 from __future__ import annotations
 
@@ -16,24 +14,8 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("IPTT_TEST_DB_READY") != "1",
-    reason="requires a migrated PostgreSQL database",
-)
-
 STAMP = date.today().isoformat()
 PROGRAMME = f"pytest lifecycle {STAMP}"
-
-
-@pytest.fixture(scope="module")
-def admin() -> TestClient:
-    from app.main import create_app
-
-    client = TestClient(create_app())
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-    assert r.status_code == 200, r.text
-    client.headers["x-csrf-token"] = r.json()["csrf_token"]
-    return client
 
 
 @pytest.fixture(scope="module")

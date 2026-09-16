@@ -16,7 +16,7 @@ Target architecture, as agreed:
 
 ## Status
 
-**Done and verified against the real 10,106-row dataset:**
+**Done and verified:**
 
 - Corrected data model, 14 tables, real foreign keys and cascades
 - Alembic baseline, reference-data seed, and the confirmed Security Clearance change
@@ -92,7 +92,8 @@ compose service deliberately named `iptt-api`. Change it only at build time:
 docker build --build-arg API_ORIGIN=http://elsewhere:8000 frontend
 ```
 
-Migrating the legacy data:
+Importing the POC dataset (optional — it exists to sanity-check the rules
+against realistic shapes, not because the application needs it):
 
 ```bash
 cd backend
@@ -103,9 +104,27 @@ python -m etl.verify_migration    --sqlite /path/to/iptt.db
 Tests:
 
 ```bash
-make test                                  # unit suite, no database needed
-IPTT_TEST_DB_READY=1 make test-all         # adds API smoke tests
+make test                                  # domain rules only, no database
+make test-all                              # everything; needs an empty database
 ```
+
+The suite seeds itself. `make test-all` wants nothing but a PostgreSQL database
+with the migrations applied — it creates its own administrator, programme,
+project, scope, task template and execution history, asserts against those, and
+tears them down. There is no fixture data to ship and nothing to import first:
+
+```bash
+createdb iptt_test
+DATABASE_URL=postgresql+psycopg://iptt:iptt@localhost:5432/iptt_test \
+  python -m alembic upgrade head
+DATABASE_URL=... IPTT_TEST_DB_READY=1 pytest
+```
+
+That is a deliberate change. These tests used to run against the POC dataset,
+hardcoding `PROJECT_ID = 12`, the legacy credentials, and counts like "57 nodes"
+and "50 activities" — so a clean checkout could not run its own tests, and CI
+would have needed a copy of the POC database. The seeding fixture also means
+every run exercises the Day-0 flow end to end before a single assertion.
 
 ---
 
@@ -148,8 +167,10 @@ database, so an admin can correct it without a redeploy.
 
 ## What changed in the numbers
 
-Running the ETL against the live dataset moves several figures. All of it is
-intended; none of it is a regression.
+This project is greenfield: the 10,102 rows imported from the POC are a
+*pattern reference*, not production data, and can be changed or discarded. The
+comparison below is kept because it documents what the corrected rules do to a
+realistic dataset — it is not a promise about live figures.
 
 | Measure | Legacy | New | Why |
 |---|---:|---:|---|

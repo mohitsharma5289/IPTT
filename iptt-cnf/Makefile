@@ -18,7 +18,7 @@ web-build:
 web-check:
 	cd frontend && npx tsc --noEmit
 
-test-all:    ## includes API smoke tests; needs a migrated database
+test-all:    ## everything; needs an empty migrated database, no fixture data
 	cd backend && IPTT_TEST_DB_READY=1 python -m pytest tests/ -q
 
 lint:
